@@ -399,50 +399,52 @@ class BrowserManager {
 }
 
     async getProductLinks() {
-    return await this.page.evaluate(() => {
-        const links = new Set();
+        return await this.page.evaluate(() => {
+            const links = new Set();
 
-        // Helper to clean and make absolute
-        const qualify = (href) => {
-            if (!href) return null;
-            if (href.startsWith('//')) return 'https:' + href;
-            if (href.startsWith('/')) return window.location.origin + href;
-            return href;
-        };
+            // Helper to clean and make absolute
+            const qualify = (href) => {
+                if (!href) return null;
+                if (href.startsWith('//')) return 'https:' + href;
+                if (href.startsWith('/')) return window.location.origin + href;
+                return href;
+            };
 
-        // Method 1: All links containing /p- (product pattern)
-        const allLinks = Array.from(document.querySelectorAll('a[href*="/p-"]'));
-        allLinks.forEach(a => {
-            const href = qualify(a.getAttribute('href'));
-            if (href && !href.includes('cart') && !href.includes('wishlist') && !href.includes('comment') && href.includes('/p-')) {
-                links.add(href);
-            }
-        });
-
-        // Method 2: Specific SHEIN/Category selectors
-        const specificSelectors = [
-            '.S-product-item__img-container a',
-            '.product-card__img-container a',
-            '.item-img a',
-            'a.product-item-img',
-            'div[class*="product-item"] a',
-            '.S-product-item__info a',
-            '.product-item__name a',
-            '.wish-list__item a',
-            '.wish-item-info a',
-            'a[data-type="product"]'
-        ];
-
-        specificSelectors.forEach(sel => {
-            Array.from(document.querySelectorAll(sel)).forEach(a => {
+            // Method 1: All links containing /p- or /p/ (product patterns)
+            const allLinks = Array.from(document.querySelectorAll('a'));
+            allLinks.forEach(a => {
                 const href = qualify(a.getAttribute('href'));
-                if (href && href.includes('/p-')) links.add(href);
+                if (href && !href.includes('cart') && !href.includes('wishlist') && !href.includes('comment')) {
+                     if (href.includes('/p-') || href.includes('/p/')) {
+                        links.add(href);
+                     }
+                }
             });
-        });
 
-        return Array.from(links);
-    });
-}
+            // Method 2: Specific SHEIN/Category selectors
+            const specificSelectors = [
+                '.S-product-item__img-container a',
+                '.product-card__img-container a',
+                '.item-img a',
+                'a.product-item-img',
+                'div[class*="product-item"] a',
+                '.S-product-item__info a',
+                '.product-item__name a',
+                '.wish-list__item a',
+                '.wish-item-info a',
+                'a[data-type="product"]'
+            ];
+
+            specificSelectors.forEach(sel => {
+                Array.from(document.querySelectorAll(sel)).forEach(a => {
+                    const href = qualify(a.getAttribute('href'));
+                    if (href && (href.includes('/p-') || href.includes('/p/'))) links.add(href);
+                });
+            });
+
+            return Array.from(links);
+        });
+    }
 
     async scanSheinVerse(targetUrl, onResult) {
     this.isScanning = true;
