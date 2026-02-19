@@ -213,7 +213,7 @@ class BrowserManager {
                             status = 'INVALID';
                         } else if (errorMsg.includes('redeemed') || errorMsg.includes('limit') || errorMsg.includes('used')) {
                             status = 'REDEEMED';
-                        } else if (errorMsg.includes('applicable') || errorMsg.includes('criteria')) {
+                        } else if (errorMsg.includes('applicable') || errorMsg.includes('criteria') || errorMsg.includes('eligible')) {
                             status = 'NOT_APPLICABLE';
                         } else {
                             // Fallback for other errors
