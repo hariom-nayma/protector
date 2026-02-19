@@ -1,5 +1,5 @@
-2026/02/19-21:52:44.756 1470e Recovering log #90
-2026/02/19-21:52:44.757 1470e Level-0 table #92: started
-2026/02/19-21:52:44.757 1470e Level-0 table #92: 0 bytes OK
-2026/02/19-21:52:44.775 1470e Delete type=3 #88
-2026/02/19-21:52:44.775 1470e Delete type=0 #90
+2026/02/19-22:13:20.107 148df Recovering log #96
+2026/02/19-22:13:20.110 148df Level-0 table #98: started
+2026/02/19-22:13:20.110 148df Level-0 table #98: 0 bytes OK
+2026/02/19-22:13:20.129 148df Delete type=3 #94
+2026/02/19-22:13:20.129 148df Delete type=0 #96
