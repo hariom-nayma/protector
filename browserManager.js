@@ -33,8 +33,11 @@ class BrowserManager {
                     '--no-zygote',
                     '--disable-gpu',
                     '--disable-features=IsolateOrigins,site-per-process',
-                    '--disable-blink-features=AutomationControlled'
-                ]
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-service-autorun',
+                    '--password-store=basic'
+                ],
+                ignoreDefaultArgs: ['--enable-automation']
             });
             console.log('✅ Browser launched successfully!');
         } catch (e) {
@@ -53,6 +56,9 @@ class BrowserManager {
         }
 
         this.page = await this.browser.newPage();
+
+        // Set Viewport
+        await this.page.setViewport({ width: 1366, height: 768 });
 
         // Set a realistic User Agent to avoid simple blocks
         await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -101,6 +107,17 @@ class BrowserManager {
 
             let currentUrl = this.page.url();
             console.log(`[DEBUG] Final URL after navigation: ${currentUrl}`);
+
+            // Check for error page content
+            try {
+                const pageTitle = await this.page.title();
+                const bodyText = await this.page.evaluate(() => document.body.innerText.substring(0, 500));
+                if (bodyText.includes("site can’t be reached") || bodyText.includes("ERR_TIMED_OUT")) {
+                    throw new Error("Navigation failed: Site can't be reached (Timeout/Block).");
+                }
+            } catch (e) {
+                if (e.message.includes("Navigation failed")) throw e;
+            }
 
             // CHECK FOR DEEP LINK VALUE (Redirect manually if needed)
             try {
