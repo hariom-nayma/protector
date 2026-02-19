@@ -77,38 +77,73 @@ class BrowserManager {
         console.log("Login window closed and session saved.");
     }
 
+    async addToCart(url) {
+        console.log(`[MANUAL] Attempting to add item from: ${url}`);
+        await this.initBrowser();
+        try {
+            await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await new Promise(r => setTimeout(r, 4000));
+
+            // Select size if available
+            await this.page.evaluate(() => {
+                const sizes = document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)');
+                if (sizes.length > 0) sizes[0].click();
+            });
+            await new Promise(r => setTimeout(r, 1000));
+
+            // Click Add to Bag
+            const clicked = await this.page.evaluate(() => {
+                const btns = Array.from(document.querySelectorAll('button'));
+                const addBtn = btns.find(b => b.innerText.toUpperCase().includes('ADD TO BAG'));
+                if (addBtn && !addBtn.disabled) {
+                    addBtn.click();
+                    return true;
+                }
+                return false;
+            });
+
+            if (clicked) {
+                console.log("✅ Clicked 'Add to Bag'. Waiting for cart update...");
+                await new Promise(r => setTimeout(r, 4000));
+
+                // Verify by checking cart count
+                const count = await this.getCartItemCount();
+                if (count > 0) {
+                    console.log(`✅ Item added! Cart count: ${count}`);
+                    return { success: true, count };
+                }
+            } else {
+                console.error("❌ Could not find or click 'Add to Bag' button.");
+                return { success: false, error: "Add button not found or disabled" };
+            }
+        } catch (e) {
+            console.error("Error adding item:", e);
+            return { success: false, error: e.message };
+        }
+        return { success: false, error: "Verification failed" };
+    }
+
     async addRandomSheinVerseItem() {
         console.log("🛒 Cart is empty! Finding a Shein Verse item to add...");
         try {
             await this.page.goto('https://www.sheinindia.in/c/sverse-5939-37961', { waitUntil: 'domcontentloaded' });
-            await new Promise(r => setTimeout(r, 5000)); // Wait for list
+            await new Promise(r => setTimeout(r, 6000)); // Increased wait
 
             const links = await this.getProductLinks();
+            console.log(`[DEBUG] Found ${links.length} potential items.`);
 
-            for (const link of links.slice(0, 5)) { // Try first 5
-                console.log(`Trying to add: ${link}`);
+            if (links.length === 0) {
+                await this.page.screenshot({ path: `debug_no_links_${Date.now()}.png` });
+                return false;
+            }
+
+            for (const link of links.slice(0, 5)) {
+                console.log(`[DEBUG] Checking: ${link}`);
                 const stock = await this.checkStock(link);
 
                 if (stock.available) {
-                    // We are already on the page (checkStock goes there)
-                    // Select size
-                    await this.page.evaluate(() => {
-                        const sizes = document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)');
-                        if (sizes.length > 0) sizes[0].click();
-                    });
-
-                    await new Promise(r => setTimeout(r, 500));
-
-                    // Click Add to Bag
-                    await this.page.evaluate(() => {
-                        const btns = Array.from(document.querySelectorAll('button'));
-                        const addBtn = btns.find(b => b.innerText.toUpperCase().includes('ADD TO BAG'));
-                        if (addBtn) addBtn.click();
-                    });
-
-                    console.log("✅ Added item to bag!");
-                    await new Promise(r => setTimeout(r, 3000)); // Wait for add
-                    return true;
+                    const result = await this.addToCart(link);
+                    if (result.success) return true;
                 }
             }
         } catch (e) {
@@ -119,27 +154,33 @@ class BrowserManager {
 
     async ensureCartHasItem() {
         try {
-            // Check if we have items
-            const itemCount = await this.page.evaluate(() => {
-                // Try to resolve cart count from header or API
-                // Looking for common bag count elements
-                const badges = document.querySelectorAll('.j-bag-count, .header-cart-count, .iconfont-gouwudai .num');
-                for (const b of badges) {
-                    const num = parseInt(b.innerText);
-                    if (!isNaN(num)) return num;
-                }
-                return 0; // Default to 0 if not found
-            });
+            let itemCount = await this.getCartItemCount();
 
             if (itemCount === 0) {
-                await this.addRandomSheinVerseItem();
+                const added = await this.addRandomSheinVerseItem();
+                if (!added) return false;
+
                 // Go back to cart
                 await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded' });
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise(r => setTimeout(r, 3000));
+                itemCount = await this.getCartItemCount();
             }
+            return itemCount > 0;
         } catch (e) {
             console.error("Error ensuring cart has item:", e);
+            return false;
         }
+    }
+
+    async getCartItemCount() {
+        return await this.page.evaluate(() => {
+            const badges = document.querySelectorAll('.j-bag-count, .header-cart-count, .iconfont-gouwudai .num');
+            for (const b of badges) {
+                const num = parseInt(b.innerText);
+                if (!isNaN(num)) return num;
+            }
+            return 0;
+        });
     }
 
     async checkCoupons(coupons, options = { screenshot: true, detailed: true }) {

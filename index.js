@@ -87,7 +87,7 @@ const getHelpText = (userId) => {
 /users - List all authorized users
 /admin_status - View global protection status
 /set_interval <code>[MIN]</code> - Change check frequency (Default: 3m)
-/cart_url - Get link to add items manually
+/add_item <code>[URL]</code> - Manually add item to cart
 /stopall - Emergency stop for ALL users`;
     }
 
@@ -125,8 +125,8 @@ bot.onText(/\/check(?: (.+))?/, async (msg, match) => {
 
     // Notify Admin
     if (process.env.ADMIN_ID && String(msg.from.id) !== String(process.env.ADMIN_ID)) {
-        bot.sendMessage(process.env.ADMIN_ID, 
-            `🔔 <b>Admin Alert</b>\nUser <code>${msg.from.id}</code> checking:\n<code>${coupons.join(', ')}</code>`, 
+        bot.sendMessage(process.env.ADMIN_ID,
+            `🔔 <b>Admin Alert</b>\nUser <code>${msg.from.id}</code> checking:\n<code>${coupons.join(', ')}</code>`,
             { parse_mode: 'HTML' }
         );
     }
@@ -159,24 +159,47 @@ bot.onText(/\/cart_url/, (msg) => {
     if (!checkAccess(msg)) return;
 
     const url = 'https://www.sheinindia.in/c/sverse-5939-37961';
-    bot.sendMessage(chatId, 
+    bot.sendMessage(chatId,
         `🛒 <b>Manual Cart Setup</b>\n\nIf the bot fails to add items, please visit this link and add a cheap item to your cart manually:\n\n<a href="${url}">👉 Shein Verse Collection</a>\n\nAfter adding, run /start again.`,
         { parse_mode: 'HTML' }
     );
 });
 
+// --- Command: /add_item (Manual Cart Add) ---
+bot.onText(/\/add_item(?: (.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    if (!checkAccess(msg)) return;
+
+    const url = match[1];
+    if (!url || !url.includes('http')) {
+        return bot.sendMessage(chatId, "⚠️ Usage: `/add_item <URL>`\nPlease provide a full product URL.", { parse_mode: 'Markdown' });
+    }
+
+    bot.sendMessage(chatId, "⏳ Attempting to add item to cart... Please wait.");
+
+    // We need to make sure browser is ready or initialized
+    // browserManager.addToCart handles initBrowser
+    const result = await browserManager.addToCart(url);
+
+    if (result.success) {
+        bot.sendMessage(chatId, `✅ <b>Success!</b> Item added.\nCart Count: ${result.count}`, { parse_mode: 'HTML' });
+    } else {
+        bot.sendMessage(chatId, `❌ <b>Failed:</b> ${result.error}`, { parse_mode: 'HTML' });
+    }
+});
+
 // --- Command: /set_interval (Admin Only) ---
 bot.onText(/\/set_interval (\d+)/, (msg, match) => {
     if (!isAdmin(msg.from.id)) return;
-    
+
     const newMinutes = parseInt(match[1]);
     if (newMinutes < 1) {
         return bot.sendMessage(msg.chat.id, "⚠️ Interval must be at least 1 minute.");
     }
-    
+
     protectionIntervalMinutes = newMinutes;
     bot.sendMessage(msg.chat.id, `✅ Protection interval set to <b>${newMinutes} minutes</b>.\nRestarting cycle if active...`, { parse_mode: 'HTML' });
-    
+
     // Restart interval if running
     if (protectionInterval) {
         clearInterval(protectionInterval);
@@ -196,7 +219,7 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
     }
 
     const newCoupons = input.split(' ').map(c => c.trim()).filter(c => c);
-    
+
     if (newCoupons.length === 0) {
         return bot.sendMessage(chatId, "⚠️ No valid coupons provided.");
     }
@@ -206,13 +229,13 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
     }
     const userSet = userProtections.get(userId);
     newCoupons.forEach(c => userSet.add(c));
-    
+
     // Reset user's message ID to force a new message
     lastUserMessageIds.delete(userId);
 
-    bot.sendMessage(chatId, 
-        `🛡️ <b>Protection Started!</b> 🛡️\n\nAdded: <code>${newCoupons.join(', ')}</code>\nYour Total Protected: ${userSet.size}\n\nI will check them every ${protectionIntervalMinutes} minutes via API.`, 
-        { 
+    bot.sendMessage(chatId,
+        `🛡️ <b>Protection Started!</b> 🛡️\n\nAdded: <code>${newCoupons.join(', ')}</code>\nYour Total Protected: ${userSet.size}\n\nI will check them every ${protectionIntervalMinutes} minutes via API.`,
+        {
             parse_mode: 'HTML',
             reply_markup: {
                 inline_keyboard: [
@@ -224,8 +247,8 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
 
     // Notify Admin
     if (process.env.ADMIN_ID && String(userId) !== String(process.env.ADMIN_ID)) {
-        bot.sendMessage(process.env.ADMIN_ID, 
-            `🔔 <b>Admin Alert</b>\nUser <code>${userId}</code> started protecting:\n<code>${newCoupons.join(', ')}</code>`, 
+        bot.sendMessage(process.env.ADMIN_ID,
+            `🔔 <b>Admin Alert</b>\nUser <code>${userId}</code> started protecting:\n<code>${newCoupons.join(', ')}</code>`,
             { parse_mode: 'HTML' }
         );
     }
@@ -252,7 +275,7 @@ async function startProtection() {
             return;
         }
         await runProtectionCycle();
-    }, protectionIntervalMinutes * 60 * 1000); 
+    }, protectionIntervalMinutes * 60 * 1000);
 }
 
 async function runProtectionCycle() {
@@ -276,11 +299,11 @@ async function runProtectionCycle() {
         results.forEach(r => resultsMap.set(r.code, r));
 
         const now = new Date();
-        const timeString = now.toLocaleTimeString('en-IN', { 
-            hour: '2-digit', 
-            minute: '2-digit', 
+        const timeString = now.toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit',
             second: '2-digit',
-            timeZone: 'Asia/Kolkata' 
+            timeZone: 'Asia/Kolkata'
         });
 
         // Distribute results to each User
@@ -365,7 +388,7 @@ bot.onText(/\/release (.+)/, (msg, match) => {
     if (!checkAccess(msg)) return;
     const userId = msg.from.id;
     const coupon = match[1].trim();
-    
+
     if (userProtections.has(userId)) {
         const userSet = userProtections.get(userId);
         if (userSet.delete(coupon)) {
@@ -389,7 +412,7 @@ bot.onText(/\/stop/, (msg) => {
     if (!checkAccess(msg)) return;
     const userId = msg.from.id;
     let response = "";
-    
+
     // Stop Scan (Global singleton currently)
     if (browserManager.isScanning) {
         // Maybe check if this user started the scan? For now, allow stopping scan gloablly?
@@ -411,7 +434,7 @@ bot.onText(/\/stop/, (msg) => {
 // --- Command: /stopall (Admin Only) ---
 bot.onText(/\/stopall/, (msg) => {
     if (!isAdmin(msg.from.id)) return;
-    
+
     userProtections.clear();
     lastUserMessageIds.clear();
     if (protectionInterval) {
@@ -513,15 +536,15 @@ bot.on('callback_query', (query) => {
     } else if (data.startsWith('release_')) {
         const coupon = data.replace('release_', '');
         const userId = query.from.id;
-        
+
         if (userProtections.has(userId)) {
             const userSet = userProtections.get(userId);
             if (userSet.delete(coupon)) {
                 bot.sendMessage(chatId, `✅ Released: ${coupon}`);
                 safeAnswer(`Released ${coupon}`);
                 if (userSet.size === 0) { // Clean up
-                     userProtections.delete(userId);
-                     lastUserMessageIds.delete(userId);
+                    userProtections.delete(userId);
+                    lastUserMessageIds.delete(userId);
                 }
             } else {
                 safeAnswer("Coupon not found.");
