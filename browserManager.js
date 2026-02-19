@@ -79,125 +79,153 @@ class BrowserManager {
 
 
     async addToCart(url) {
-    console.log(`[MANUAL] Attempting to add item from: ${url}`);
-    await this.initBrowser();
-    try {
-        await this.page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
-        await new Promise(r => setTimeout(r, 5000));
-
-        let currentUrl = this.page.url();
-        console.log(`[DEBUG] Final URL after navigation: ${currentUrl}`);
-
-        // CHECK FOR DEEP LINK VALUE (Redirect manually if needed)
+        console.log(`[MANUAL] Attempting to add item from: ${url}`);
+        await this.initBrowser();
         try {
-            const urlObj = new URL(currentUrl);
-            const deepLink = urlObj.searchParams.get('deep_link_value');
-            if (deepLink) {
-                const decodedLink = decodeURIComponent(deepLink);
-                console.log(`[DEBUG] Found deep_link_value. Redirecting to: ${decodedLink}`);
-                await this.page.goto(decodedLink, { waitUntil: 'domcontentloaded', timeout: 60000 });
-                await new Promise(r => setTimeout(r, 5000));
-                currentUrl = this.page.url();
+            // longer timeout for redirects
+            try {
+                await this.page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
+            } catch (e) {
+                console.log("[DEBUG] Navigation timeout, checking if we arrived anyway...");
             }
-        } catch (e) {
-            console.log("[DEBUG] Error checking deep link params:", e.message);
-        }
-
-        if (currentUrl.includes('onelink.me') || !currentUrl.includes('/p-')) {
-            console.warn("⚠️ URL might not be a direct product page. Trying to find product links on this page...");
-            // It might be a category page or landing page
-            const links = await this.getProductLinks();
-            if (links.length > 0) {
-                console.log(`Found ${links.length} links. Trying the first one: ${links[0]}`);
-                await this.page.goto(links[0], { waitUntil: 'domcontentloaded' });
-                await new Promise(r => setTimeout(r, 4000));
-            }
-        }
-
-        // Click handle to ensure mobile view overlays are dismissed?
-        try {
-            await this.page.mouse.click(10, 10);
-        } catch (e) { }
-
-        // Select size if available
-        await this.page.evaluate(() => {
-            const sizes = document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)');
-            if (sizes.length > 0) sizes[0].click();
-        });
-        await new Promise(r => setTimeout(r, 1000));
-
-        // Try to find Add to Bag button with multiple selectors
-        // Wait for it first
-        try {
-            await this.page.waitForSelector('button', { timeout: 5000 });
-        } catch (e) { }
-
-        const clicked = await this.page.evaluate(() => {
-            const btns = Array.from(document.querySelectorAll('button, .product-intro__add-btn, .j-add-to-bag'));
-            const addBtn = btns.find(b => {
-                const text = b.innerText.toUpperCase();
-                return text.includes('ADD TO BAG') || text.includes('ADD TO CART');
-            });
-
-            if (addBtn && !addBtn.disabled) {
-                addBtn.scrollIntoView();
-                addBtn.click();
-                return true;
-            }
-            return false;
-        });
-
-        if (clicked) {
-            console.log("✅ Clicked 'Add to Bag'. Waiting for cart update...");
             await new Promise(r => setTimeout(r, 5000));
 
-            // Verify by checking cart count
-            const count = await this.getCartItemCount();
-            if (count > 0) {
-                console.log(`✅ Item added! Cart count: ${count}`);
-                return { success: true, count };
+            let currentUrl = this.page.url();
+            console.log(`[DEBUG] Final URL after navigation: ${currentUrl}`);
+
+            // CHECK FOR DEEP LINK VALUE (Redirect manually if needed)
+            try {
+                const urlObj = new URL(currentUrl);
+                const deepLink = urlObj.searchParams.get('deep_link_value');
+                if (deepLink) {
+                    const decodedLink = decodeURIComponent(deepLink);
+                    console.log(`[DEBUG] Found deep_link_value. Redirecting to: ${decodedLink}`);
+                    try {
+                        await this.page.goto(decodedLink, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                    } catch (e) {
+                         console.log("[DEBUG] Redirect timeout, checking URL...");
+                    }
+                    await new Promise(r => setTimeout(r, 5000));
+                    currentUrl = this.page.url();
+                }
+            } catch (e) {
+                console.log("[DEBUG] Error checking deep link params:", e.message);
             }
-        } else {
-            console.error("❌ Could not find or click 'Add to Bag' button.");
-            await this.page.screenshot({ path: `debug_add_fail_${Date.now()}.png` });
-            return { success: false, error: "Add button not found (Screenshot saved)" };
+
+            // Only fallback to searching links if we are NOT on a product page
+            if ((currentUrl.includes('onelink.me') || !currentUrl.includes('/p-')) && !currentUrl.includes('/p/')) {
+                console.warn("⚠️ URL might not be a direct product page. Trying to find product links on this page...");
+                // It might be a category page or landing page
+                try {
+                     const links = await this.getProductLinks();
+                     if (links.length > 0) {
+                        console.log(`Found ${links.length} links. Trying the first one: ${links[0]}`);
+                        try {
+                            await this.page.goto(links[0], { waitUntil: 'domcontentloaded', timeout: 60000 });
+                        } catch(e) {}
+                        await new Promise(r => setTimeout(r, 4000));
+                     }
+                } catch (e) {
+                    console.log("[DEBUG] Failed to find links on landing page, aborting hunt.");
+                }
+            }
+
+            // Click handle to ensure mobile view overlays are dismissed?
+            try {
+                await this.page.mouse.click(10, 10);
+            } catch (e) {}
+
+            // Select size if available
+            try {
+                await this.page.evaluate(() => {
+                    const sizes = document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)');
+                    if (sizes.length > 0) sizes[0].click();
+                });
+            } catch (e) {}
+            
+            await new Promise(r => setTimeout(r, 1000));
+
+            // Try to find Add to Bag button with multiple selectors
+            // Wait for it first
+            try {
+                await this.page.waitForSelector('button', { timeout: 5000 });
+            } catch (e) { }
+
+            const clicked = await this.page.evaluate(() => {
+                const btns = Array.from(document.querySelectorAll('button, .product-intro__add-btn, .j-add-to-bag'));
+                const addBtn = btns.find(b => {
+                    const text = b.innerText.toUpperCase();
+                    return text.includes('ADD TO BAG') || text.includes('ADD TO CART');
+                });
+
+                if (addBtn && !addBtn.disabled) {
+                    addBtn.scrollIntoView();
+                    addBtn.click();
+                    return true;
+                }
+                return false;
+            });
+
+            if (clicked) {
+                console.log("✅ Clicked 'Add to Bag'. Waiting for cart update...");
+                await new Promise(r => setTimeout(r, 5000));
+
+                // Verify by checking cart count
+                const count = await this.getCartItemCount();
+                if (count > 0) {
+                    console.log(`✅ Item added! Cart count: ${count}`);
+                    return { success: true, count };
+                }
+            } else {
+                console.error("❌ Could not find or click 'Add to Bag' button.");
+                await this.page.screenshot({ path: `debug_add_fail_${Date.now()}.png` });
+                return { success: false, error: "Add button not found (Screenshot saved)" };
+            }
+        } catch (e) {
+            console.error("Error adding item:", e);
+            await this.page.screenshot({ path: `debug_error_${Date.now()}.png` });
+            return { success: false, error: e.message };
         }
-    } catch (e) {
-        console.error("Error adding item:", e);
-        await this.page.screenshot({ path: `debug_error_${Date.now()}.png` });
-        return { success: false, error: e.message };
+        return { success: false, error: "Verification failed" };
     }
-    return { success: false, error: "Verification failed" };
-}
 
     async addRandomSheinVerseItem() {
-    console.log("🛒 Cart is empty! Finding a Shein Verse item to add...");
-    try {
-        await this.page.goto('https://www.sheinindia.in/c/sverse-5939-37961', { waitUntil: 'domcontentloaded' });
-        await new Promise(r => setTimeout(r, 6000)); // Increased wait
+        console.log("🛒 Cart is empty! Finding a Shein Verse item to add...");
+        try {
+            try {
+                await this.page.goto('https://www.sheinindia.in/c/sverse-5939-37961', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            } catch(e) {}
+            
+            await new Promise(r => setTimeout(r, 6000)); // Increased wait
 
-        const links = await this.getProductLinks();
-        console.log(`[DEBUG] Found ${links.length} potential items.`);
+            // Scroll to trigger lazy load
+            await this.page.evaluate(async () => {
+                window.scrollBy(0, 500);
+            });
+            await new Promise(r => setTimeout(r, 2000));
 
-        if (links.length === 0) {
-            await this.page.screenshot({ path: `debug_no_links_${Date.now()}.png` });
-            return false;
-        }
+            const links = await this.getProductLinks();
+            console.log(`[DEBUG] Found ${links.length} potential items.`);
 
-        for (const link of links.slice(0, 5)) {
-            console.log(`[DEBUG] Checking: ${link}`);
-            const stock = await this.checkStock(link);
-
-            if (stock.available) {
-                const result = await this.addToCart(link);
-                if (result.success) return true;
+            if (links.length === 0) {
+                await this.page.screenshot({ path: `debug_no_links_${Date.now()}.png` });
+                return false;
             }
+
+            for (const link of links.slice(0, 5)) {
+                console.log(`[DEBUG] Checking: ${link}`);
+                const stock = await this.checkStock(link);
+
+                if (stock.available) {
+                    const result = await this.addToCart(link);
+                    if (result.success) return true;
+                }
+            }
+        } catch (e) {
+            console.error("Failed to add Shein Verse item:", e.message);
         }
-    } catch (e) {
-        console.error("Failed to add Shein Verse item:", e.message);
+        return false;
     }
-    return false;
-}
 
     async ensureCartHasItem() {
     try {
