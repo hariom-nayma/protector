@@ -154,7 +154,12 @@ class BrowserManager {
             }
 
             // Ensure we have a Shein Verse item
-            await this.ensureCartHasItem();
+            const cartHasItem = await this.ensureCartHasItem();
+            if (!cartHasItem) {
+                console.error("❌ Cart is empty and failed to add item. Aborting coupon check.");
+                if (options.closeBrowser !== false) await this.closeBrowser();
+                return coupons.map(c => ({ code: c, status: 'ERROR_CART_EMPTY' }));
+            }
 
             for (const coupon of coupons) {
                 if (options.detailed) console.log(`Checking via API: ${coupon}`);

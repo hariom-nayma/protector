@@ -87,6 +87,7 @@ const getHelpText = (userId) => {
 /users - List all authorized users
 /admin_status - View global protection status
 /set_interval <code>[MIN]</code> - Change check frequency (Default: 3m)
+/cart_url - Get link to add items manually
 /stopall - Emergency stop for ALL users`;
     }
 
@@ -151,6 +152,18 @@ let protectionInterval = null;
 let protectionIntervalMinutes = 3; // Default 3 mins
 const userProtections = new Map(); // UserId -> Set<Coupon>
 const lastUserMessageIds = new Map(); // UserId -> MessageId
+
+// --- Command: /cart_url ---
+bot.onText(/\/cart_url/, (msg) => {
+    const chatId = msg.chat.id;
+    if (!checkAccess(msg)) return;
+
+    const url = 'https://www.sheinindia.in/c/sverse-5939-37961';
+    bot.sendMessage(chatId, 
+        `🛒 <b>Manual Cart Setup</b>\n\nIf the bot fails to add items, please visit this link and add a cheap item to your cart manually:\n\n<a href="${url}">👉 Shein Verse Collection</a>\n\nAfter adding, run /start again.`,
+        { parse_mode: 'HTML' }
+    );
+});
 
 // --- Command: /set_interval (Admin Only) ---
 bot.onText(/\/set_interval (\d+)/, (msg, match) => {
@@ -286,6 +299,9 @@ async function runProtectionCycle() {
                     if (r.status === 'APPLICABLE') {
                         statusIcon = '✅';
                         statusText = 'APPLICABLE (Protected)';
+                    } else if (r.status === 'ERROR_CART_EMPTY') {
+                        statusIcon = '⚠️';
+                        statusText = 'CART EMPTY - Protection Paused';
                     } else if (r.status === 'INVALID' || r.status.includes('exist')) {
                         statusIcon = '❌';
                     } else if (r.status === 'REDEEMED' || r.status.includes('limit')) {
