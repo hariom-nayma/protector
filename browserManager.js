@@ -139,11 +139,16 @@ class BrowserManager {
             try {
                 await this.page.evaluate(() => {
                     const sizes = document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)');
-                    if (sizes.length > 0) sizes[0].click();
+                    if (sizes.length > 0) {
+                        sizes[0].click();
+                        // Also try clicking the inner span if the div click doesn't work
+                        const innerSpan = sizes[0].querySelector('span');
+                        if (innerSpan) innerSpan.click();
+                    }
                 });
             } catch (e) {}
             
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 2000)); // Wait for UI update
 
             // Try to find Add to Bag button with multiple selectors
             // Wait for it first
@@ -403,7 +408,12 @@ class BrowserManager {
 
             // 2. Size Check - Attempt to find available sizes
             const sizeItems = Array.from(document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)'));
-            if (sizeItems.length === 0) {
+            if (sizeItems.length > 0) {
+                 // Try clicking the first size to see if it enables the button
+                 sizeItems[0].click();
+                 const inner = sizeItems[0].querySelector('span');
+                 if(inner) inner.click();
+            } else {
                 // Some items act as "One Size" and don't have selectors.
                 // If there is an add to bag button, we assume it's available.
             }
