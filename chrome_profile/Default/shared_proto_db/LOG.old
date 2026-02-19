@@ -1,3 +1,14 @@
-2026/02/19-17:58:24.321 54bc Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\shared_proto_db/MANIFEST-000001
-2026/02/19-17:58:24.321 54bc Recovering log #3
-2026/02/19-17:58:24.323 54bc Reusing old log C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\shared_proto_db/000003.log 
+2026/02/19-21:52:03.927 14640 Recovering log #97
+2026/02/19-21:52:03.928 14640 Level-0 table #99: started
+2026/02/19-21:52:03.942 14640 Level-0 table #99: 3039 bytes OK
+2026/02/19-21:52:03.957 14640 Delete type=3 #95
+2026/02/19-21:52:03.957 14640 Delete type=0 #97
+2026/02/19-21:52:03.958 14645 Compacting 4@0 + 1@1 files
+2026/02/19-21:52:03.970 14645 Generated table #101@0: 123 keys, 7167 bytes
+2026/02/19-21:52:03.971 14645 Compacted 4@0 + 1@1 files => 7167 bytes
+2026/02/19-21:52:03.974 14645 compacted to: files[ 0 1 0 0 0 0 0 ]
+2026/02/19-21:52:03.975 14645 Delete type=2 #90
+2026/02/19-21:52:03.975 14645 Delete type=2 #96
+2026/02/19-21:52:03.975 14645 Delete type=2 #88
+2026/02/19-21:52:03.975 14645 Delete type=2 #93
+2026/02/19-21:52:03.975 14645 Delete type=2 #99

@@ -1,3 +1,5 @@
-2026/02/19-18:20:32.261 8be0 Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Site Characteristics Database/MANIFEST-000001
-2026/02/19-18:20:32.266 8be0 Recovering log #3
-2026/02/19-18:20:32.268 8be0 Reusing old log C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Site Characteristics Database/000003.log 
+2026/02/19-21:52:44.771 14716 Recovering log #95
+2026/02/19-21:52:44.773 14716 Level-0 table #97: started
+2026/02/19-21:52:44.779 14716 Level-0 table #97: 168 bytes OK
+2026/02/19-21:52:44.793 14716 Delete type=3 #93
+2026/02/19-21:52:44.793 14716 Delete type=0 #95

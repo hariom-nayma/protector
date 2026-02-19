@@ -1,3 +1,5 @@
-2026/02/19-17:58:24.313 54bc Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\shared_proto_db\metadata/MANIFEST-000001
-2026/02/19-17:58:24.314 54bc Recovering log #3
-2026/02/19-17:58:24.314 54bc Reusing old log C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\shared_proto_db\metadata/000003.log 
+2026/02/19-21:52:03.888 14640 Recovering log #93
+2026/02/19-21:52:03.891 14640 Level-0 table #95: started
+2026/02/19-21:52:03.895 14640 Level-0 table #95: 124 bytes OK
+2026/02/19-21:52:03.923 14640 Delete type=3 #91
+2026/02/19-21:52:03.925 14640 Delete type=0 #93

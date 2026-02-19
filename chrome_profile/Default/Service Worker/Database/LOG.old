@@ -1,3 +1,5 @@
-2026/02/19-17:58:24.237 1730 Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Service Worker\Database/MANIFEST-000001
-2026/02/19-17:58:24.237 1730 Recovering log #3
-2026/02/19-17:58:24.239 1730 Reusing old log C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Service Worker\Database/000003.log 
+2026/02/19-21:52:03.817 14647 Recovering log #87
+2026/02/19-21:52:03.818 14647 Level-0 table #89: started
+2026/02/19-21:52:03.821 14647 Level-0 table #89: 301 bytes OK
+2026/02/19-21:52:03.835 14647 Delete type=0 #87
+2026/02/19-21:52:03.835 14647 Delete type=3 #86

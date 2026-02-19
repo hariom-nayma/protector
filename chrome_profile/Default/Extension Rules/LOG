@@ -1,2 +1,5 @@
-2026/02/14-17:22:34.425 1ce8 Creating DB C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Extension Rules since it was missing.
-2026/02/14-17:22:34.476 1ce8 Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Extension Rules/MANIFEST-000001
+2026/02/19-21:52:44.798 1470e Recovering log #74
+2026/02/19-21:52:44.798 1470e Level-0 table #76: started
+2026/02/19-21:52:44.798 1470e Level-0 table #76: 0 bytes OK
+2026/02/19-21:52:44.809 1470e Delete type=3 #72
+2026/02/19-21:52:44.809 1470e Delete type=0 #74
