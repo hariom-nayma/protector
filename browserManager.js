@@ -81,21 +81,51 @@ class BrowserManager {
         console.log(`[MANUAL] Attempting to add item from: ${url}`);
         await this.initBrowser();
         try {
-            await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-            await new Promise(r => setTimeout(r, 4000));
+            // longer timeout for redirects
+            await this.page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
+            await new Promise(r => setTimeout(r, 5000));
+
+            const currentUrl = this.page.url();
+            console.log(`[DEBUG] Final URL after navigation: ${currentUrl}`);
+
+            if (currentUrl.includes('onelink.me') || !currentUrl.includes('/p-')) {
+                console.warn("⚠️ URL might not be a direct product page. Trying to find product links on this page...");
+                // It might be a category page or landing page
+                const links = await this.getProductLinks();
+                if (links.length > 0) {
+                     console.log(`Found ${links.length} links. Trying the first one: ${links[0]}`);
+                     await this.page.goto(links[0], { waitUntil: 'domcontentloaded' });
+                     await new Promise(r => setTimeout(r, 4000));
+                }
+            }
+
+            // Click handle to ensure mobile view overlays are dismissed?
+            try {
+                await this.page.mouse.click(10, 10);
+            } catch (e) {}
 
             // Select size if available
             await this.page.evaluate(() => {
-                const sizes = document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)');
-                if (sizes.length > 0) sizes[0].click();
+                 const sizes = document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)');
+                 if (sizes.length > 0) sizes[0].click();
             });
             await new Promise(r => setTimeout(r, 1000));
 
-            // Click Add to Bag
+            // Try to find Add to Bag button with multiple selectors
+            // Wait for it first
+            try {
+                await this.page.waitForSelector('button', { timeout: 5000 });
+            } catch (e) {}
+
             const clicked = await this.page.evaluate(() => {
-                const btns = Array.from(document.querySelectorAll('button'));
-                const addBtn = btns.find(b => b.innerText.toUpperCase().includes('ADD TO BAG'));
+                const btns = Array.from(document.querySelectorAll('button, .product-intro__add-btn, .j-add-to-bag'));
+                const addBtn = btns.find(b => {
+                    const text = b.innerText.toUpperCase();
+                    return text.includes('ADD TO BAG') || text.includes('ADD TO CART');
+                });
+                
                 if (addBtn && !addBtn.disabled) {
+                    addBtn.scrollIntoView();
                     addBtn.click();
                     return true;
                 }
@@ -104,8 +134,8 @@ class BrowserManager {
 
             if (clicked) {
                 console.log("✅ Clicked 'Add to Bag'. Waiting for cart update...");
-                await new Promise(r => setTimeout(r, 4000));
-
+                await new Promise(r => setTimeout(r, 5000));
+                
                 // Verify by checking cart count
                 const count = await this.getCartItemCount();
                 if (count > 0) {
@@ -114,10 +144,12 @@ class BrowserManager {
                 }
             } else {
                 console.error("❌ Could not find or click 'Add to Bag' button.");
-                return { success: false, error: "Add button not found or disabled" };
+                await this.page.screenshot({ path: `debug_add_fail_${Date.now()}.png` });
+                return { success: false, error: "Add button not found (Screenshot saved)" };
             }
         } catch (e) {
             console.error("Error adding item:", e);
+            await this.page.screenshot({ path: `debug_error_${Date.now()}.png` });
             return { success: false, error: e.message };
         }
         return { success: false, error: "Verification failed" };
