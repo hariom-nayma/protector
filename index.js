@@ -86,6 +86,7 @@ const getHelpText = (userId) => {
 /remove <code>[ID]</code> - Revoke access from a user ID
 /users - List all authorized users
 /admin_status - View global protection status
+/set_interval <code>[MIN]</code> - Change check frequency (Default: 3m)
 /stopall - Emergency stop for ALL users`;
     }
 
@@ -147,8 +148,29 @@ bot.onText(/\/check(?: (.+))?/, async (msg, match) => {
 
 // --- Command: /protect ---
 let protectionInterval = null;
+let protectionIntervalMinutes = 3; // Default 3 mins
 const userProtections = new Map(); // UserId -> Set<Coupon>
 const lastUserMessageIds = new Map(); // UserId -> MessageId
+
+// --- Command: /set_interval (Admin Only) ---
+bot.onText(/\/set_interval (\d+)/, (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+    
+    const newMinutes = parseInt(match[1]);
+    if (newMinutes < 1) {
+        return bot.sendMessage(msg.chat.id, "⚠️ Interval must be at least 1 minute.");
+    }
+    
+    protectionIntervalMinutes = newMinutes;
+    bot.sendMessage(msg.chat.id, `✅ Protection interval set to <b>${newMinutes} minutes</b>.\nRestarting cycle if active...`, { parse_mode: 'HTML' });
+    
+    // Restart interval if running
+    if (protectionInterval) {
+        clearInterval(protectionInterval);
+        protectionInterval = null;
+        startProtection();
+    }
+});
 
 bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
@@ -161,7 +183,7 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
     }
 
     const newCoupons = input.split(' ').map(c => c.trim()).filter(c => c);
-
+    
     if (newCoupons.length === 0) {
         return bot.sendMessage(chatId, "⚠️ No valid coupons provided.");
     }
@@ -171,13 +193,13 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
     }
     const userSet = userProtections.get(userId);
     newCoupons.forEach(c => userSet.add(c));
-
+    
     // Reset user's message ID to force a new message
     lastUserMessageIds.delete(userId);
 
-    bot.sendMessage(chatId,
-        `🛡️ <b>Protection Started!</b> 🛡️\n\nAdded: <code>${newCoupons.join(', ')}</code>\nYour Total Protected: ${userSet.size}\n\nI will check them every 3 minutes via API.`,
-        {
+    bot.sendMessage(chatId, 
+        `🛡️ <b>Protection Started!</b> 🛡️\n\nAdded: <code>${newCoupons.join(', ')}</code>\nYour Total Protected: ${userSet.size}\n\nI will check them every ${protectionIntervalMinutes} minutes via API.`, 
+        { 
             parse_mode: 'HTML',
             reply_markup: {
                 inline_keyboard: [
@@ -189,8 +211,8 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
 
     // Notify Admin
     if (process.env.ADMIN_ID && String(userId) !== String(process.env.ADMIN_ID)) {
-        bot.sendMessage(process.env.ADMIN_ID,
-            `🔔 <b>Admin Alert</b>\nUser <code>${userId}</code> started protecting:\n<code>${newCoupons.join(', ')}</code>`,
+        bot.sendMessage(process.env.ADMIN_ID, 
+            `🔔 <b>Admin Alert</b>\nUser <code>${userId}</code> started protecting:\n<code>${newCoupons.join(', ')}</code>`, 
             { parse_mode: 'HTML' }
         );
     }
@@ -202,9 +224,14 @@ async function startProtection() {
     if (protectionInterval) return; // Already running
 
     // Immediate First Run
+    // Only run immediate if we are starting fresh/restarting, 
+    // but be careful not to spam if just changing interval? 
+    // Actually standard behavior is fine.
+    // However, if we just restarted interval due to time change, maybe we skip immediate run?
+    // Let's keep it simple: always run immediately to confirm status.
     await runProtectionCycle();
 
-    // Interval Run (3 mins)
+    // Interval Run
     protectionInterval = setInterval(async () => {
         if (userProtections.size === 0) {
             clearInterval(protectionInterval);
@@ -212,7 +239,7 @@ async function startProtection() {
             return;
         }
         await runProtectionCycle();
-    }, 180000);
+    }, protectionIntervalMinutes * 60 * 1000); 
 }
 
 async function runProtectionCycle() {
