@@ -152,19 +152,44 @@ class BrowserManager {
             } catch (e) { }
 
             const clicked = await this.page.evaluate(() => {
-                const btns = Array.from(document.querySelectorAll('button, .product-intro__add-btn, .j-add-to-bag'));
+                // Defines selectors to check
+                const selectors = [
+                    'button', 
+                    '.product-intro__add-btn', 
+                    '.j-add-to-bag', 
+                    'div[aria-label*="Add to"]',
+                    'button[aria-label*="Add to"]',
+                    '.add-to-bag',
+                    '.goods-add-chart' // Legacy/Mobile
+                ];
+                
+                const btns = Array.from(document.querySelectorAll(selectors.join(',')));
+                
                 const addBtn = btns.find(b => {
-                    const text = b.innerText.toUpperCase();
-                    return text.includes('ADD TO BAG') || text.includes('ADD TO CART');
+                    const text = (b.innerText || b.getAttribute('aria-label') || "").toUpperCase();
+                    // Check visibility
+                    const style = window.getComputedStyle(b);
+                    if (style.display === 'none' || style.visibility === 'hidden') return false;
+                    
+                    return text.includes('ADD TO BAG') || text.includes('ADD TO CART') || text.includes('ADD TO SHEET');
                 });
 
                 if (addBtn && !addBtn.disabled) {
-                    addBtn.scrollIntoView();
+                    addBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     addBtn.click();
                     return true;
                 }
+                
                 return false;
             });
+            
+            // Check if we failed, if so, dump button texts for debugging
+            if (!clicked) {
+                 const allButtonTexts = await this.page.evaluate(() => {
+                     return Array.from(document.querySelectorAll('button, div[role="button"], .btn')).map(b => b.innerText || b.getAttribute('aria-label')).slice(0, 20);
+                 });
+                 console.log("[DEBUG] Failed to find Add button. Visible buttons:", allButtonTexts);
+            }
 
             if (clicked) {
                 console.log("✅ Clicked 'Add to Bag'. Waiting for cart update...");
@@ -384,10 +409,24 @@ class BrowserManager {
             }
 
             // 3. Add to Bag Button Check
-            const btns = Array.from(document.querySelectorAll('button, .product-intro__add-btn, .j-add-to-bag'));
+            const selectors = [
+                    'button', 
+                    '.product-intro__add-btn', 
+                    '.j-add-to-bag', 
+                    'div[aria-label*="Add to"]', 
+                    'button[aria-label*="Add to"]',
+                    '.add-to-bag',
+                    '.goods-add-chart'
+            ];
+            const btns = Array.from(document.querySelectorAll(selectors.join(',')));
+            
             const addToBagBtn = btns.find(b => {
-                const t = b.innerText.toUpperCase();
-                return t.includes('ADD TO BAG') || t.includes('ADD TO CART');
+                const t = (b.innerText || b.getAttribute('aria-label') || "").toUpperCase();
+                // Check visibility
+                const style = window.getComputedStyle(b);
+                if (style.display === 'none' || style.visibility === 'hidden') return false;
+                
+                return t.includes('ADD TO BAG') || t.includes('ADD TO CART') || t.includes('ADD TO SHEET');
             });
 
             if (!addToBagBtn || addToBagBtn.disabled) {
