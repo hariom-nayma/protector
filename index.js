@@ -84,7 +84,9 @@ const getHelpText = (userId) => {
         helpText += `\n\n👮‍♂️ <b>Admin Commands:</b>
 /add <code>[ID]</code> - Authorize a user ID
 /remove <code>[ID]</code> - Revoke access from a user ID
-/users - List all authorized users`;
+/users - List all authorized users
+/admin_status - View global protection status
+/stopall - Emergency stop for ALL users`;
     }
 
     helpText += `\n\n<i>Tip: Tap on a command to copy it (on mobile)</i>`;
@@ -234,7 +236,12 @@ async function runProtectionCycle() {
         results.forEach(r => resultsMap.set(r.code, r));
 
         const now = new Date();
-        const timeString = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const timeString = now.toLocaleTimeString('en-IN', { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit',
+            timeZone: 'Asia/Kolkata' 
+        });
 
         // Distribute results to each User
         for (const [userId, userCoupons] of userProtections) {
