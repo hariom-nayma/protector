@@ -23,7 +23,7 @@ class BrowserManager {
             this.browser = await puppeteer.launch({
                 headless: isHeadless ? 'new' : false,
                 userDataDir: USER_DATA_DIR,
-                ignoreHTTPSErrors: true, 
+                ignoreHTTPSErrors: true,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -53,7 +53,7 @@ class BrowserManager {
         }
 
         this.page = await this.browser.newPage();
-        
+
         // Wait a moment for the page to be fully ready
         await new Promise(r => setTimeout(r, 1000));
     }
@@ -84,11 +84,11 @@ class BrowserManager {
             await new Promise(r => setTimeout(r, 5000)); // Wait for list
 
             const links = await this.getProductLinks();
-            
+
             for (const link of links.slice(0, 5)) { // Try first 5
                 console.log(`Trying to add: ${link}`);
                 const stock = await this.checkStock(link);
-                
+
                 if (stock.available) {
                     // We are already on the page (checkStock goes there)
                     // Select size
@@ -96,7 +96,7 @@ class BrowserManager {
                         const sizes = document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)');
                         if (sizes.length > 0) sizes[0].click();
                     });
-                    
+
                     await new Promise(r => setTimeout(r, 500));
 
                     // Click Add to Bag
@@ -121,14 +121,14 @@ class BrowserManager {
         try {
             // Check if we have items
             const itemCount = await this.page.evaluate(() => {
-                 // Try to resolve cart count from header or API
-                 // Looking for common bag count elements
-                 const badges = document.querySelectorAll('.j-bag-count, .header-cart-count, .iconfont-gouwudai .num');
-                 for (const b of badges) {
-                     const num = parseInt(b.innerText);
-                     if (!isNaN(num)) return num;
-                 }
-                 return 0; // Default to 0 if not found
+                // Try to resolve cart count from header or API
+                // Looking for common bag count elements
+                const badges = document.querySelectorAll('.j-bag-count, .header-cart-count, .iconfont-gouwudai .num');
+                for (const b of badges) {
+                    const num = parseInt(b.innerText);
+                    if (!isNaN(num)) return num;
+                }
+                return 0; // Default to 0 if not found
             });
 
             if (itemCount === 0) {
@@ -167,7 +167,7 @@ class BrowserManager {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'X-Requested-With': 'XMLHttpRequest' 
+                                'X-Requested-With': 'XMLHttpRequest'
                                 // Browser adds Cookie, Origin, Referer automatically
                             },
                             body: JSON.stringify({
@@ -197,12 +197,18 @@ class BrowserManager {
                     // Success Case: Usually returns cart info or standard response with no error message
                     // Based on user log: status 400 means failure. So 200 likely means success.
                     if (apiResult.success && !data.errorMessage) {
-                         status = 'APPLICABLE';
-                    } 
+                        // Check if it actually gave a discount
+                        if (data.voucherAmount && data.voucherAmount.value > 0) {
+                            status = 'APPLICABLE';
+                        } else {
+                            // No error, but no discount -> likely means criteria not met without error msg
+                            status = 'NOT_APPLICABLE';
+                        }
+                    }
                     // Error Cases
                     else if (data.errorMessage && data.errorMessage.errors && data.errorMessage.errors.length > 0) {
                         const errorMsg = data.errorMessage.errors[0].message.toLowerCase();
-                        
+
                         if (errorMsg.includes('invalid') || errorMsg.includes('does not exist')) {
                             status = 'INVALID';
                         } else if (errorMsg.includes('redeemed') || errorMsg.includes('limit') || errorMsg.includes('used')) {
@@ -210,18 +216,18 @@ class BrowserManager {
                         } else if (errorMsg.includes('applicable') || errorMsg.includes('criteria')) {
                             status = 'NOT_APPLICABLE';
                         } else {
-                             // Fallback for other errors
-                             status = 'INVALID'; // Treat unknown errors as failure to apply
-                             if (options.detailed) console.log(`Unknown error message: ${errorMsg}`);
+                            // Fallback for other errors
+                            status = 'INVALID'; // Treat unknown errors as failure to apply
+                            if (options.detailed) console.log(`Unknown error message: ${errorMsg}`);
                         }
                     } else if (data.code === '0' || data.msg === 'success') {
-                         // Some APIs use this format
-                         status = 'APPLICABLE';
+                        // Some APIs use this format
+                        status = 'APPLICABLE';
                     }
                 }
 
                 results.push({ code: coupon, status });
-                
+
                 // Small delay to be polite
                 await new Promise(r => setTimeout(r, 1000));
             }
