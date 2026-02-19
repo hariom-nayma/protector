@@ -54,6 +54,15 @@ class BrowserManager {
 
         this.page = await this.browser.newPage();
 
+        // Set a realistic User Agent to avoid simple blocks
+        await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+        // Optimize page for speed/stealth
+        await this.page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        });
+
         // Wait a moment for the page to be fully ready
         await new Promise(r => setTimeout(r, 1000));
     }
@@ -103,7 +112,7 @@ class BrowserManager {
                     try {
                         await this.page.goto(decodedLink, { waitUntil: 'domcontentloaded', timeout: 60000 });
                     } catch (e) {
-                         console.log("[DEBUG] Redirect timeout, checking URL...");
+                        console.log("[DEBUG] Redirect timeout, checking URL...");
                     }
                     await new Promise(r => setTimeout(r, 5000));
                     currentUrl = this.page.url();
@@ -117,14 +126,14 @@ class BrowserManager {
                 console.warn("⚠️ URL might not be a direct product page. Trying to find product links on this page...");
                 // It might be a category page or landing page
                 try {
-                     const links = await this.getProductLinks();
-                     if (links.length > 0) {
+                    const links = await this.getProductLinks();
+                    if (links.length > 0) {
                         console.log(`Found ${links.length} links. Trying the first one: ${links[0]}`);
                         try {
                             await this.page.goto(links[0], { waitUntil: 'domcontentloaded', timeout: 60000 });
-                        } catch(e) {}
+                        } catch (e) { }
                         await new Promise(r => setTimeout(r, 4000));
-                     }
+                    }
                 } catch (e) {
                     console.log("[DEBUG] Failed to find links on landing page, aborting hunt.");
                 }
@@ -133,21 +142,25 @@ class BrowserManager {
             // Click handle to ensure mobile view overlays are dismissed?
             try {
                 await this.page.mouse.click(10, 10);
-            } catch (e) {}
+            } catch (e) { }
 
             // Select size if available
             try {
+                // Wait for sizes to appear if possible
+                try {
+                    await this.page.waitForSelector('.product-intro__size-radio', { timeout: 3000 });
+                } catch (e) { }
+
                 await this.page.evaluate(() => {
                     const sizes = document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)');
                     if (sizes.length > 0) {
                         sizes[0].click();
-                        // Also try clicking the inner span if the div click doesn't work
                         const innerSpan = sizes[0].querySelector('span');
                         if (innerSpan) innerSpan.click();
                     }
                 });
-            } catch (e) {}
-            
+            } catch (e) { }
+
             await new Promise(r => setTimeout(r, 2000)); // Wait for UI update
 
             // Try to find Add to Bag button with multiple selectors
@@ -159,23 +172,23 @@ class BrowserManager {
             const clicked = await this.page.evaluate(() => {
                 // Defines selectors to check
                 const selectors = [
-                    'button', 
-                    '.product-intro__add-btn', 
-                    '.j-add-to-bag', 
+                    'button',
+                    '.product-intro__add-btn',
+                    '.j-add-to-bag',
                     'div[aria-label*="Add to"]',
                     'button[aria-label*="Add to"]',
                     '.add-to-bag',
                     '.goods-add-chart' // Legacy/Mobile
                 ];
-                
+
                 const btns = Array.from(document.querySelectorAll(selectors.join(',')));
-                
+
                 const addBtn = btns.find(b => {
                     const text = (b.innerText || b.getAttribute('aria-label') || "").toUpperCase();
                     // Check visibility
                     const style = window.getComputedStyle(b);
                     if (style.display === 'none' || style.visibility === 'hidden') return false;
-                    
+
                     return text.includes('ADD TO BAG') || text.includes('ADD TO CART') || text.includes('ADD TO SHEET');
                 });
 
@@ -184,16 +197,16 @@ class BrowserManager {
                     addBtn.click();
                     return true;
                 }
-                
+
                 return false;
             });
-            
+
             // Check if we failed, if so, dump button texts for debugging
             if (!clicked) {
-                 const allButtonTexts = await this.page.evaluate(() => {
-                     return Array.from(document.querySelectorAll('button, div[role="button"], .btn')).map(b => b.innerText || b.getAttribute('aria-label')).slice(0, 20);
-                 });
-                 console.log("[DEBUG] Failed to find Add button. Visible buttons:", allButtonTexts);
+                const allButtonTexts = await this.page.evaluate(() => {
+                    return Array.from(document.querySelectorAll('button, div[role="button"], .btn')).map(b => b.innerText || b.getAttribute('aria-label')).slice(0, 20);
+                });
+                console.log("[DEBUG] Failed to find Add button. Visible buttons:", allButtonTexts);
             }
 
             if (clicked) {
@@ -224,8 +237,8 @@ class BrowserManager {
         try {
             try {
                 await this.page.goto('https://www.sheinindia.in/c/sverse-5939-37961', { waitUntil: 'domcontentloaded', timeout: 60000 });
-            } catch(e) {}
-            
+            } catch (e) { }
+
             await new Promise(r => setTimeout(r, 6000)); // Increased wait
 
             // Scroll to trigger lazy load
@@ -260,200 +273,205 @@ class BrowserManager {
     }
 
     async ensureCartHasItem() {
-    try {
-        let itemCount = await this.getCartItemCount();
+        try {
+            let itemCount = await this.getCartItemCount();
 
-        if (itemCount === 0) {
-            const added = await this.addRandomSheinVerseItem();
-            if (!added) return false;
+            if (itemCount === 0) {
+                const added = await this.addRandomSheinVerseItem();
+                if (!added) return false;
 
-            // Go back to cart
-            await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded' });
-            await new Promise(r => setTimeout(r, 3000));
-            itemCount = await this.getCartItemCount();
+                // Go back to cart
+                await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded' });
+                await new Promise(r => setTimeout(r, 3000));
+                itemCount = await this.getCartItemCount();
+            }
+            return itemCount > 0;
+        } catch (e) {
+            console.error("Error ensuring cart has item:", e);
+            return false;
         }
-        return itemCount > 0;
-    } catch (e) {
-        console.error("Error ensuring cart has item:", e);
-        return false;
     }
-}
 
     async getCartItemCount() {
-    return await this.page.evaluate(() => {
-        const badges = document.querySelectorAll('.j-bag-count, .header-cart-count, .iconfont-gouwudai .num');
-        for (const b of badges) {
-            const num = parseInt(b.innerText);
-            if (!isNaN(num)) return num;
-        }
-        return 0;
-    });
-}
+        return await this.page.evaluate(() => {
+            const badges = document.querySelectorAll('.j-bag-count, .header-cart-count, .iconfont-gouwudai .num');
+            for (const b of badges) {
+                const num = parseInt(b.innerText);
+                if (!isNaN(num)) return num;
+            }
+            return 0;
+        });
+    }
 
     async checkCoupons(coupons, options = { screenshot: true, detailed: true }) {
-    await this.initBrowser();
-    const results = [];
+        await this.initBrowser();
+        const results = [];
 
-    try {
-        if (!this.page.url().includes('cart')) {
-            await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded' });
-            // Wait for initial tokens/cookies to settle
-            await new Promise(r => setTimeout(r, 4000));
-        }
+        try {
+            if (!this.page.url().includes('cart')) {
+                await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded' });
+                // Wait for initial tokens/cookies to settle
+                await new Promise(r => setTimeout(r, 4000));
+            }
 
-        // Ensure we have a Shein Verse item
-        const cartHasItem = await this.ensureCartHasItem();
-        if (!cartHasItem) {
-            console.error("❌ Cart is empty and failed to add item. Aborting coupon check.");
-            if (options.closeBrowser !== false) await this.closeBrowser();
-            return coupons.map(c => ({ code: c, status: 'ERROR_CART_EMPTY' }));
-        }
+            // Ensure we have a Shein Verse item
+            const cartHasItem = await this.ensureCartHasItem();
+            if (!cartHasItem) {
+                console.error("❌ Cart is empty and failed to add item. Aborting coupon check.");
+                if (options.closeBrowser !== false) await this.closeBrowser();
+                return coupons.map(c => ({ code: c, status: 'ERROR_CART_EMPTY' }));
+            }
 
-        for (const coupon of coupons) {
-            if (options.detailed) console.log(`Checking via API: ${coupon}`);
+            for (const coupon of coupons) {
+                if (options.detailed) console.log(`Checking via API: ${coupon}`);
 
-            // Call the internal API directly from the browser context
-            // This inherits all cookies and session headers
-            const apiResult = await this.page.evaluate(async (code) => {
-                try {
-                    const response = await fetch('/api/cart/apply-voucher', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Requested-With': 'XMLHttpRequest'
-                            // Browser adds Cookie, Origin, Referer automatically
-                        },
-                        body: JSON.stringify({
-                            voucherId: code,
-                            device: { client_type: 'web' }
-                        })
-                    });
+                // Call the internal API directly from the browser context
+                // This inherits all cookies and session headers
+                const apiResult = await this.page.evaluate(async (code) => {
+                    try {
+                        const response = await fetch('/api/cart/apply-voucher', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                                // Browser adds Cookie, Origin, Referer automatically
+                            },
+                            body: JSON.stringify({
+                                voucherId: code,
+                                device: { client_type: 'web' }
+                            })
+                        });
 
-                    const data = await response.json();
-                    return { success: response.ok, data, status: response.status };
-                } catch (err) {
-                    return { error: err.message };
-                }
-            }, coupon);
+                        const data = await response.json();
+                        return { success: response.ok, data, status: response.status };
+                    } catch (err) {
+                        return { error: err.message };
+                    }
+                }, coupon);
 
-            if (options.detailed) console.log(`API Response for ${coupon}:`, JSON.stringify(apiResult));
+                if (options.detailed) console.log(`API Response for ${coupon}:`, JSON.stringify(apiResult));
 
-            let status = 'UNKNOWN';
+                let status = 'UNKNOWN';
 
-            if (apiResult.error) {
-                console.error(`API Error for ${coupon}: ${apiResult.error}`);
-                status = 'ERROR';
-            } else if (apiResult.data) {
-                // Analyze Response
-                const data = apiResult.data;
+                if (apiResult.error) {
+                    console.error(`API Error for ${coupon}: ${apiResult.error}`);
+                    status = 'ERROR';
+                } else if (apiResult.data) {
+                    // Analyze Response
+                    const data = apiResult.data;
 
-                // Success Case: Usually returns cart info or standard response with no error message
-                // Based on user log: status 400 means failure. So 200 likely means success.
-                if (apiResult.success && !data.errorMessage) {
-                    // Check if it actually gave a discount
-                    if (data.voucherAmount && data.voucherAmount.value > 0) {
+                    // Success Case: Usually returns cart info or standard response with no error message
+                    // Based on user log: status 400 means failure. So 200 likely means success.
+                    if (apiResult.success && !data.errorMessage) {
+                        // Check if it actually gave a discount
+                        if (data.voucherAmount && data.voucherAmount.value > 0) {
+                            status = 'APPLICABLE';
+                        } else {
+                            // No error, but no discount -> likely means criteria not met without error msg
+                            status = 'NOT_APPLICABLE';
+                        }
+                    }
+                    // Error Cases
+                    else if (data.errorMessage && data.errorMessage.errors && data.errorMessage.errors.length > 0) {
+                        const errorMsg = data.errorMessage.errors[0].message.toLowerCase();
+
+                        if (errorMsg.includes('invalid') || errorMsg.includes('does not exist')) {
+                            status = 'INVALID';
+                        } else if (errorMsg.includes('redeemed') || errorMsg.includes('limit') || errorMsg.includes('used')) {
+                            status = 'REDEEMED';
+                        } else if (errorMsg.includes('applicable') || errorMsg.includes('criteria') || errorMsg.includes('eligible')) {
+                            status = 'NOT_APPLICABLE';
+                        } else {
+                            // Fallback for other errors
+                            status = 'INVALID'; // Treat unknown errors as failure to apply
+                            if (options.detailed) console.log(`Unknown error message: ${errorMsg}`);
+                        }
+                    } else if (data.code === '0' || data.msg === 'success') {
+                        // Some APIs use this format
                         status = 'APPLICABLE';
-                    } else {
-                        // No error, but no discount -> likely means criteria not met without error msg
-                        status = 'NOT_APPLICABLE';
                     }
                 }
-                // Error Cases
-                else if (data.errorMessage && data.errorMessage.errors && data.errorMessage.errors.length > 0) {
-                    const errorMsg = data.errorMessage.errors[0].message.toLowerCase();
 
-                    if (errorMsg.includes('invalid') || errorMsg.includes('does not exist')) {
-                        status = 'INVALID';
-                    } else if (errorMsg.includes('redeemed') || errorMsg.includes('limit') || errorMsg.includes('used')) {
-                        status = 'REDEEMED';
-                    } else if (errorMsg.includes('applicable') || errorMsg.includes('criteria') || errorMsg.includes('eligible')) {
-                        status = 'NOT_APPLICABLE';
-                    } else {
-                        // Fallback for other errors
-                        status = 'INVALID'; // Treat unknown errors as failure to apply
-                        if (options.detailed) console.log(`Unknown error message: ${errorMsg}`);
-                    }
-                } else if (data.code === '0' || data.msg === 'success') {
-                    // Some APIs use this format
-                    status = 'APPLICABLE';
-                }
+                results.push({ code: coupon, status });
+
+                // Small delay to be polite
+                await new Promise(r => setTimeout(r, 1000));
             }
-
-            results.push({ code: coupon, status });
-
-            // Small delay to be polite
-            await new Promise(r => setTimeout(r, 1000));
+        } catch (e) {
+            console.error(e);
+        } finally {
+            if (options.closeBrowser !== false) {
+                await this.closeBrowser();
+            }
         }
-    } catch (e) {
-        console.error(e);
-    } finally {
-        if (options.closeBrowser !== false) {
-            await this.closeBrowser();
-        }
+        return results;
     }
-    return results;
-}
     async checkStock(link) {
-    try {
-        await this.page.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await new Promise(r => setTimeout(r, 2000));
+        try {
+            await this.page.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await new Promise(r => setTimeout(r, 3000)); // Initial Render Wait
 
-        return await this.page.evaluate(() => {
-            const text = document.body.innerText.toLowerCase();
+            return await this.page.evaluate(async () => {
+                const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-            // 1. Basic Out of Stock Check
-            if (text.includes('sold out') || text.includes('restock') || text.includes('out of stock')) {
-                return { available: false, reason: 'Sold Out' };
-            }
+                const text = document.body.innerText.toLowerCase();
 
-            // 2. Size Check - Attempt to find available sizes
-            const sizeItems = Array.from(document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)'));
-            if (sizeItems.length > 0) {
-                 // Try clicking the first size to see if it enables the button
-                 sizeItems[0].click();
-                 const inner = sizeItems[0].querySelector('span');
-                 if(inner) inner.click();
-            } else {
-                // Some items act as "One Size" and don't have selectors.
-                // If there is an add to bag button, we assume it's available.
-            }
+                // 1. Basic Out of Stock Check
+                if (text.includes('sold out') || text.includes('restock') || text.includes('out of stock')) {
+                    return { available: false, reason: 'Sold Out' };
+                }
 
-            // 3. Add to Bag Button Check
-            const selectors = [
-                    'button', 
-                    '.product-intro__add-btn', 
-                    '.j-add-to-bag', 
-                    'div[aria-label*="Add to"]', 
+                // 2. Size Check - Attempt to find available sizes
+                const sizeItems = Array.from(document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)'));
+                if (sizeItems.length > 0) {
+                    // Try clicking the first size to see if it enables the button
+                    sizeItems[0].click();
+                    const inner = sizeItems[0].querySelector('span');
+                    if (inner) inner.click();
+
+                    // Wait for UI update (button enablement)
+                    await sleep(500);
+                }
+
+                // 3. Add to Bag Button Check
+                const selectors = [
+                    'button',
+                    '.product-intro__add-btn',
+                    '.j-add-to-bag',
+                    'div[aria-label*="Add to"]',
                     'button[aria-label*="Add to"]',
                     '.add-to-bag',
-                    '.goods-add-chart'
-            ];
-            const btns = Array.from(document.querySelectorAll(selectors.join(',')));
-            
-            const addToBagBtn = btns.find(b => {
-                const t = (b.innerText || b.getAttribute('aria-label') || "").toUpperCase();
-                // Check visibility
-                const style = window.getComputedStyle(b);
-                if (style.display === 'none' || style.visibility === 'hidden') return false;
-                
-                return t.includes('ADD TO BAG') || t.includes('ADD TO CART') || t.includes('ADD TO SHEET');
+                    '.goods-add-chart',
+                    'div[role="button"]'
+                ];
+                const btns = Array.from(document.querySelectorAll(selectors.join(',')));
+
+                const addToBagBtn = btns.find(b => {
+                    const t = (b.innerText || b.getAttribute('aria-label') || "").toUpperCase();
+                    // Check visibility
+                    const style = window.getComputedStyle(b);
+                    if (style.display === 'none' || style.visibility === 'hidden') return false;
+
+                    return t.includes('ADD TO BAG') || t.includes('ADD TO CART') || t.includes('ADD TO SHEET');
+                });
+
+                if (!addToBagBtn || addToBagBtn.disabled) {
+                    // FAILURE DEBUGGING: Collect texts of all button-like elements
+                    const debugTexts = btns.slice(0, 15).map(b => b.innerText || b.getAttribute('aria-label') || 'NO_TEXT').join(' | ');
+                    return { available: false, reason: `Add to Bag disabled or not found. Visible Buttons: [${debugTexts}]` };
+                }
+
+                // Get title and price
+                const title = document.querySelector('.product-intro__head-name')?.innerText || 'Product';
+                const price = document.querySelector('.product-intro__head-mainprice .common-price')?.innerText || 'Unknown';
+
+                return { available: true, title, price, sizes: sizeItems.map(s => s.innerText.trim()) };
             });
-
-            if (!addToBagBtn || addToBagBtn.disabled) {
-                return { available: false, reason: 'Add to Bag disabled or not found' };
-            }
-
-            // Get title and price
-            const title = document.querySelector('.product-intro__head-name')?.innerText || 'Product';
-            const price = document.querySelector('.product-intro__head-mainprice .common-price')?.innerText || 'Unknown';
-
-            return { available: true, title, price, sizes: sizeItems.map(s => s.innerText.trim()) };
-        });
-    } catch (err) {
-        console.error(`Error checking stock for ${link}:`, err.message);
-        return { available: false, reason: `Page Error: ${err.message}` };
+        } catch (err) {
+            console.error(`Error checking stock for ${link}:`, err.message);
+            return { available: false, reason: `Page Error: ${err.message}` };
+        }
     }
-}
 
     async getProductLinks() {
         return await this.page.evaluate(() => {
@@ -472,9 +490,9 @@ class BrowserManager {
             allLinks.forEach(a => {
                 const href = qualify(a.getAttribute('href'));
                 if (href && !href.includes('cart') && !href.includes('wishlist') && !href.includes('comment')) {
-                     if (href.includes('/p-') || href.includes('/p/')) {
+                    if (href.includes('/p-') || href.includes('/p/')) {
                         links.add(href);
-                     }
+                    }
                 }
             });
 
@@ -504,128 +522,128 @@ class BrowserManager {
     }
 
     async scanSheinVerse(targetUrl, onResult) {
-    this.isScanning = true;
-    await this.initBrowser();
+        this.isScanning = true;
+        await this.initBrowser();
 
-    const url = targetUrl || 'https://www.sheinindia.in/c/sverse-5939-37961';
+        const url = targetUrl || 'https://www.sheinindia.in/c/sverse-5939-37961';
 
-    try {
-        console.log(`Navigating to ${url}...`);
-        // Use domcontentloaded for faster/more stable loading
-        const response = await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+        try {
+            console.log(`Navigating to ${url}...`);
+            // Use domcontentloaded for faster/more stable loading
+            const response = await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
 
-        if (response && response.status() === 404) {
-            throw new Error(`The page returned a 404 error. Please check the URL: ${url}`);
-        }
-
-        // Wait for dynamic content
-        console.log('Waiting for content to load...');
-        await new Promise(r => setTimeout(r, 8000));
-
-        // Scroll several times to trigger lazy loading
-        console.log('Scrolling to load more items...');
-        await this.page.evaluate(async () => {
-            for (let i = 0; i < 5; i++) {
-                window.scrollBy(0, 1000);
-                await new Promise(r => setTimeout(r, 800));
+            if (response && response.status() === 404) {
+                throw new Error(`The page returned a 404 error. Please check the URL: ${url}`);
             }
-        });
 
-        // Debug screenshot
-        const debugPath = `catalog_debug_${Date.now()}.png`;
-        await this.page.screenshot({ path: debugPath });
-        console.log(`[DEBUG] Catalog screenshot saved: ${debugPath}`);
+            // Wait for dynamic content
+            console.log('Waiting for content to load...');
+            await new Promise(r => setTimeout(r, 8000));
 
-        // Get product links
-        const productLinks = await this.getProductLinks();
-        console.log(`Found ${productLinks.length} products to scan...`);
+            // Scroll several times to trigger lazy loading
+            console.log('Scrolling to load more items...');
+            await this.page.evaluate(async () => {
+                for (let i = 0; i < 5; i++) {
+                    window.scrollBy(0, 1000);
+                    await new Promise(r => setTimeout(r, 800));
+                }
+            });
 
-        const limitedLinks = productLinks.slice(0, 50);
-        for (const link of limitedLinks) {
-            if (!this.isScanning) break;
-            console.log(`Checking link: ${link}`);
-            const stockInfo = await this.checkStock(link);
-            if (stockInfo.available) {
-                onResult({ link, ...stockInfo });
+            // Debug screenshot
+            const debugPath = `catalog_debug_${Date.now()}.png`;
+            await this.page.screenshot({ path: debugPath });
+            console.log(`[DEBUG] Catalog screenshot saved: ${debugPath}`);
+
+            // Get product links
+            const productLinks = await this.getProductLinks();
+            console.log(`Found ${productLinks.length} products to scan...`);
+
+            const limitedLinks = productLinks.slice(0, 50);
+            for (const link of limitedLinks) {
+                if (!this.isScanning) break;
+                console.log(`Checking link: ${link}`);
+                const stockInfo = await this.checkStock(link);
+                if (stockInfo.available) {
+                    onResult({ link, ...stockInfo });
+                }
             }
+        } catch (e) {
+            console.error('Scan Error:', e.message);
+            throw e;
+        } finally {
+            this.isScanning = false;
         }
-    } catch (e) {
-        console.error('Scan Error:', e.message);
-        throw e;
-    } finally {
-        this.isScanning = false;
     }
-}
 
     async scanWishlist(onResult) {
-    this.isScanning = true;
-    await this.initBrowser();
+        this.isScanning = true;
+        await this.initBrowser();
 
-    try {
-        console.log('Navigating to Wishlist...');
-        const url = 'https://www.sheinindia.in/wishlist';
-        await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+        try {
+            console.log('Navigating to Wishlist...');
+            const url = 'https://www.sheinindia.in/wishlist';
+            await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
 
-        // Wait for wishlist content
-        await new Promise(r => setTimeout(r, 8000));
-
-        // Scroll a bit
-        await this.page.evaluate(() => window.scrollBy(0, 500));
-
-        // Debug screenshot
-        const debugPath = `wishlist_debug_${Date.now()}.png`;
-        await this.page.screenshot({ path: debugPath });
-        console.log(`[DEBUG] Wishlist screenshot saved: ${debugPath}`);
-
-        // Check for Access Denied or Challenge
-        const bodyText = await this.page.evaluate(() => document.body.innerText.toLowerCase());
-        if (bodyText.includes('access denied') || bodyText.includes('please enable cookies')) {
-            throw new Error('Access Denied or Security Challenge triggered. Try running /login again to refresh session.');
-        }
-
-        // Check if login is needed
-        const isLoginNeeded = await this.page.evaluate(() => {
-            const text = document.body.innerText.toLowerCase();
-            return text.includes('sign in') || text.includes('log in') || !!document.querySelector('.login-box, #login-box');
-        });
-
-        if (isLoginNeeded) {
-            throw new Error('Please run /login first to scan your wishlist.');
-        }
-
-        // Get product links from wishlist
-        let productLinks = await this.getProductLinks();
-
-        // If nothing found, try refreshing as requested by user
-        if (productLinks.length === 0) {
-            console.log('No wishlist items found, refreshing page...');
-            await this.page.reload({ waitUntil: 'domcontentloaded' });
+            // Wait for wishlist content
             await new Promise(r => setTimeout(r, 8000));
+
+            // Scroll a bit
             await this.page.evaluate(() => window.scrollBy(0, 500));
-            productLinks = await this.getProductLinks();
-        }
 
-        console.log(`Found ${productLinks.length} wishlist items...`);
+            // Debug screenshot
+            const debugPath = `wishlist_debug_${Date.now()}.png`;
+            await this.page.screenshot({ path: debugPath });
+            console.log(`[DEBUG] Wishlist screenshot saved: ${debugPath}`);
 
-        for (const link of productLinks) {
-            if (!this.isScanning) break;
-            console.log(`Checking wishlist item: ${link}`);
-            const stockInfo = await this.checkStock(link);
-            if (stockInfo.available) {
-                onResult({ link, ...stockInfo });
+            // Check for Access Denied or Challenge
+            const bodyText = await this.page.evaluate(() => document.body.innerText.toLowerCase());
+            if (bodyText.includes('access denied') || bodyText.includes('please enable cookies')) {
+                throw new Error('Access Denied or Security Challenge triggered. Try running /login again to refresh session.');
             }
+
+            // Check if login is needed
+            const isLoginNeeded = await this.page.evaluate(() => {
+                const text = document.body.innerText.toLowerCase();
+                return text.includes('sign in') || text.includes('log in') || !!document.querySelector('.login-box, #login-box');
+            });
+
+            if (isLoginNeeded) {
+                throw new Error('Please run /login first to scan your wishlist.');
+            }
+
+            // Get product links from wishlist
+            let productLinks = await this.getProductLinks();
+
+            // If nothing found, try refreshing as requested by user
+            if (productLinks.length === 0) {
+                console.log('No wishlist items found, refreshing page...');
+                await this.page.reload({ waitUntil: 'domcontentloaded' });
+                await new Promise(r => setTimeout(r, 8000));
+                await this.page.evaluate(() => window.scrollBy(0, 500));
+                productLinks = await this.getProductLinks();
+            }
+
+            console.log(`Found ${productLinks.length} wishlist items...`);
+
+            for (const link of productLinks) {
+                if (!this.isScanning) break;
+                console.log(`Checking wishlist item: ${link}`);
+                const stockInfo = await this.checkStock(link);
+                if (stockInfo.available) {
+                    onResult({ link, ...stockInfo });
+                }
+            }
+        } catch (e) {
+            console.error('Wishlist Scan Error:', e.message);
+            throw e;
+        } finally {
+            this.isScanning = false;
         }
-    } catch (e) {
-        console.error('Wishlist Scan Error:', e.message);
-        throw e;
-    } finally {
+    }
+
+    stopScan() {
         this.isScanning = false;
     }
-}
-
-stopScan() {
-    this.isScanning = false;
-}
 }
 
 module.exports = new BrowserManager();
