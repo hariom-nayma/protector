@@ -219,6 +219,8 @@ class BrowserManager {
                 if (stock.available) {
                     const result = await this.addToCart(link);
                     if (result.success) return true;
+                } else {
+                    console.log(`[DEBUG] Skipped ${link}. Reason: ${stock.reason}`);
                 }
             }
         } catch (e) {
@@ -377,13 +379,19 @@ class BrowserManager {
             // 2. Size Check - Attempt to find available sizes
             const sizeItems = Array.from(document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)'));
             if (sizeItems.length === 0) {
-                return { available: false, reason: 'No sizes available' };
+                // Some items act as "One Size" and don't have selectors.
+                // If there is an add to bag button, we assume it's available.
             }
 
             // 3. Add to Bag Button Check
-            const addToBagBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.toUpperCase().includes('ADD TO BAG'));
+            const btns = Array.from(document.querySelectorAll('button, .product-intro__add-btn, .j-add-to-bag'));
+            const addToBagBtn = btns.find(b => {
+                const t = b.innerText.toUpperCase();
+                return t.includes('ADD TO BAG') || t.includes('ADD TO CART');
+            });
+
             if (!addToBagBtn || addToBagBtn.disabled) {
-                return { available: false, reason: 'Add to Bag disabled' };
+                return { available: false, reason: 'Add to Bag disabled or not found' };
             }
 
             // Get title and price
@@ -394,7 +402,7 @@ class BrowserManager {
         });
     } catch (err) {
         console.error(`Error checking stock for ${link}:`, err.message);
-        return { available: false, reason: 'Page Load Error' };
+        return { available: false, reason: `Page Error: ${err.message}` };
     }
 }
 
