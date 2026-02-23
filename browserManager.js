@@ -14,13 +14,39 @@ class BrowserManager {
     }
 
     async initBrowser(overrideHeadless = null) {
-        if (this.browser) return;
+        // If browser exists, close it first to ensure we get a NEW session/proxy if requested
+        if (this.browser) {
+            await this.closeBrowser();
+        }
 
         const isHeadless = overrideHeadless !== null ? overrideHeadless : (process.env.HEADLESS === 'true');
-        const proxyUrl = process.env.PROXY_URL; // e.g. http://31.59.20.176:6754
+        
+        let proxyUrl = process.env.PROXY_URL;
+        const proxyList = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',').map(p => p.trim()) : [];
+        
+        let selectedProxy = proxyUrl;
+        if (proxyList.length > 0) {
+            selectedProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
+        }
+
+        let finalProxyServer = selectedProxy;
+        let proxyAuth = null;
+
+        if (selectedProxy && selectedProxy.includes('@')) {
+            try {
+                // Handle http://user:pass@host:port
+                const urlObj = new URL(selectedProxy.startsWith('http') ? selectedProxy : `http://${selectedProxy}`);
+                finalProxyServer = `${urlObj.protocol}//${urlObj.host}`;
+                if (urlObj.username && urlObj.password) {
+                    proxyAuth = { username: urlObj.username, password: urlObj.password };
+                }
+            } catch (e) {
+                console.log("Warning: Failed to parse proxy URL credentials:", e.message);
+            }
+        }
 
         try {
-            console.log(`Launching browser (Headless: ${isHeadless}${proxyUrl ? `, Proxy: ${proxyUrl}` : ''})...`);
+            console.log(`Launching browser (Headless: ${isHeadless}${finalProxyServer ? `, Proxy: ${finalProxyServer}` : ''})...`);
             
             const launchArgs = [
                 '--no-sandbox',
@@ -36,8 +62,8 @@ class BrowserManager {
                 '--password-store=basic'
             ];
 
-            if (proxyUrl) {
-                launchArgs.push(`--proxy-server=${proxyUrl}`);
+            if (finalProxyServer) {
+                launchArgs.push(`--proxy-server=${finalProxyServer}`);
             }
 
             this.browser = await puppeteer.launch({
@@ -51,6 +77,18 @@ class BrowserManager {
         } catch (e) {
             console.error('❌ Failed to launch browser:', e.message);
             throw new Error('Could not launch browser. Make sure dependencies are installed.');
+        }
+
+        // ... open pages logic ...
+        
+        this.page = await this.browser.newPage();
+
+        // Proxy Authentication
+        const username = proxyAuth ? proxyAuth.username : process.env.PROXY_USERNAME;
+        const password = proxyAuth ? proxyAuth.password : process.env.PROXY_PASSWORD;
+
+        if (username && password) {
+            await this.page.authenticate({ username, password });
         }
 
         // Workaround for "Requesting main frame too early" with stealth plugin:
@@ -327,11 +365,21 @@ class BrowserManager {
         });
     }
 
-    async checkCoupons(coupons, options = { screenshot: true, detailed: true }) {
+    async checkCoupons(coupons, options = { screenshot: true, detailed: true }, retryCount = 0) {
+        const MAX_RETRIES = 5;
         await this.initBrowser();
+
         const results = [];
 
         try {
+            // Check for initial block
+            const bodyTextLow = await this.page.evaluate(() => document.body.innerText.substring(0, 500).toLowerCase());
+            if ((bodyTextLow.includes("access denied") || bodyTextLow.includes("site can’t be reached") || bodyTextLow.includes("err_timed_out")) && retryCount < MAX_RETRIES) {
+                console.log(`⚠️ Block detected in checkCoupons. Retrying with fresh proxy (${retryCount + 1}/${MAX_RETRIES})...`);
+                await this.initBrowser(); // Restarts with a new random proxy
+                return await this.checkCoupons(coupons, options, retryCount + 1);
+            }
+
             if (!this.page.url().includes('cart')) {
                 await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded' });
                 // Wait for initial tokens/cookies to settle
@@ -506,9 +554,18 @@ class BrowserManager {
         }
     }
 
-    // New internal method to wrap checkStock with screenshot
-    async checkStockWithDebug(link) {
+    // New internal method to wrap checkStock with screenshot and PROXY RETRY
+    async checkStockWithDebug(link, retryCount = 0) {
+        const MAX_RETRIES = 5;
         const result = await this.checkStock(link);
+        
+        // If it's a block/error and we have retries left, try again with a NEW proxy
+        if (result.reason && (result.reason.includes('Page Error/Block') || result.reason.includes('Timeout')) && retryCount < MAX_RETRIES) {
+            console.log(`⚠️ Block detected for ${link}. Retrying with fresh proxy (${retryCount + 1}/${MAX_RETRIES})...`);
+            await this.initBrowser(); // This will close old and pick a new random proxy
+            return await this.checkStockWithDebug(link, retryCount + 1);
+        }
+
         if (result.needsScreenshot) {
             const path = `stock_fail_${Date.now()}.png`;
             await this.page.screenshot({ path });
