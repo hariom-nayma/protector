@@ -17,26 +17,34 @@ class BrowserManager {
         if (this.browser) return;
 
         const isHeadless = overrideHeadless !== null ? overrideHeadless : (process.env.HEADLESS === 'true');
+        const proxyUrl = process.env.PROXY_URL; // e.g. http://31.59.20.176:6754
 
         try {
-            console.log(`Launching browser (Headless: ${isHeadless})...`);
+            console.log(`Launching browser (Headless: ${isHeadless}${proxyUrl ? `, Proxy: ${proxyUrl}` : ''})...`);
+            
+            const launchArgs = [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-blink-features=AutomationControlled',
+                '--no-service-autorun',
+                '--password-store=basic'
+            ];
+
+            if (proxyUrl) {
+                launchArgs.push(`--proxy-server=${proxyUrl}`);
+            }
+
             this.browser = await puppeteer.launch({
                 headless: isHeadless ? 'new' : false,
                 userDataDir: USER_DATA_DIR,
                 ignoreHTTPSErrors: true,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--disable-gpu',
-                    '--disable-features=IsolateOrigins,site-per-process',
-                    '--disable-blink-features=AutomationControlled',
-                    '--no-service-autorun',
-                    '--password-store=basic'
-                ],
+                args: launchArgs,
                 ignoreDefaultArgs: ['--enable-automation']
             });
             console.log('✅ Browser launched successfully!');
@@ -57,17 +65,16 @@ class BrowserManager {
 
         this.page = await this.browser.newPage();
 
+        // Proxy Authentication
+        if (process.env.PROXY_USERNAME && process.env.PROXY_PASSWORD) {
+            await this.page.authenticate({
+                username: process.env.PROXY_USERNAME,
+                password: process.env.PROXY_PASSWORD
+            });
+        }
+
         // Set Viewport
         await this.page.setViewport({ width: 1366, height: 768 });
-
-        // Set a realistic User Agent to avoid simple blocks
-        await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-        // Optimize page for speed/stealth
-        await this.page.setExtraHTTPHeaders({
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        });
 
         // Wait a moment for the page to be fully ready
         await new Promise(r => setTimeout(r, 1000));
@@ -274,7 +281,7 @@ class BrowserManager {
 
             for (const link of links.slice(0, 5)) {
                 console.log(`[DEBUG] Checking: ${link}`);
-                const stock = await this.checkStock(link);
+                const stock = await this.checkStockWithDebug(link);
 
                 if (stock.available) {
                     const result = await this.addToCart(link);
@@ -425,16 +432,22 @@ class BrowserManager {
     }
     async checkStock(link) {
         try {
-            await this.page.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await new Promise(r => setTimeout(r, 3000)); // Initial Render Wait
+            await this.page.goto(link, { waitUntil: 'networkidle2', timeout: 30000 });
+            await new Promise(r => setTimeout(r, 5000)); // Increased Render Wait for stability
 
             return await this.page.evaluate(async () => {
                 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-                const text = document.body.innerText.toLowerCase();
+                const bodyText = document.body.innerText.substring(0, 1000);
+                const textLow = bodyText.toLowerCase();
+
+                // 0. Error Page Check
+                if (textLow.includes("site can’t be reached") || textLow.includes("err_timed_out") || textLow.includes("access denied")) {
+                    return { available: false, reason: 'Page Error/Block detected in content' };
+                }
 
                 // 1. Basic Out of Stock Check
-                if (text.includes('sold out') || text.includes('restock') || text.includes('out of stock')) {
+                if (textLow.includes('sold out') || textLow.includes('restock') || textLow.includes('out of stock')) {
                     return { available: false, reason: 'Sold Out' };
                 }
 
@@ -447,7 +460,7 @@ class BrowserManager {
                     if (inner) inner.click();
 
                     // Wait for UI update (button enablement)
-                    await sleep(500);
+                    await sleep(1000);
                 }
 
                 // 3. Add to Bag Button Check
@@ -474,8 +487,9 @@ class BrowserManager {
 
                 if (!addToBagBtn || addToBagBtn.disabled) {
                     // FAILURE DEBUGGING: Collect texts of all button-like elements
-                    const debugTexts = btns.slice(0, 15).map(b => b.innerText || b.getAttribute('aria-label') || 'NO_TEXT').join(' | ');
-                    return { available: false, reason: `Add to Bag disabled or not found. Visible Buttons: [${debugTexts}]` };
+                    const debugTexts = btns.slice(0, 5).map(b => b.innerText || b.getAttribute('aria-label') || 'NO_TEXT').join(' | ');
+                    const pageTitle = document.title;
+                    return { available: false, reason: `Add to Bag disabled/not found. Title: [${pageTitle}]. Visible Buttons: [${debugTexts}]`, needsScreenshot: true };
                 }
 
                 // Get title and price
@@ -487,7 +501,20 @@ class BrowserManager {
         } catch (err) {
             console.error(`Error checking stock for ${link}:`, err.message);
             return { available: false, reason: `Page Error: ${err.message}` };
+        } finally {
+            // No-op for now
         }
+    }
+
+    // New internal method to wrap checkStock with screenshot
+    async checkStockWithDebug(link) {
+        const result = await this.checkStock(link);
+        if (result.needsScreenshot) {
+            const path = `stock_fail_${Date.now()}.png`;
+            await this.page.screenshot({ path });
+            result.reason += ` (Screenshot: ${path})`;
+        }
+        return result;
     }
 
     async getProductLinks() {

@@ -1,14 +1,1 @@
-2026/02/19-22:13:20.120 148e9 Recovering log #101
-2026/02/19-22:13:20.120 148e9 Level-0 table #103: started
-2026/02/19-22:13:20.126 148e9 Level-0 table #103: 168 bytes OK
-2026/02/19-22:13:20.143 148e9 Delete type=3 #99
-2026/02/19-22:13:20.143 148e9 Delete type=0 #101
-2026/02/19-22:13:20.143 148df Compacting 4@0 + 1@1 files
-2026/02/19-22:13:20.148 148df Generated table #105@0: 2 keys, 197 bytes
-2026/02/19-22:13:20.148 148df Compacted 4@0 + 1@1 files => 197 bytes
-2026/02/19-22:13:20.152 148df compacted to: files[ 0 1 0 0 0 0 0 ]
-2026/02/19-22:13:20.153 148df Delete type=2 #92
-2026/02/19-22:13:20.153 148df Delete type=2 #100
-2026/02/19-22:13:20.153 148df Delete type=2 #94
-2026/02/19-22:13:20.153 148df Delete type=2 #103
-2026/02/19-22:13:20.153 148df Delete type=2 #97
+2026/02/22-07:54:01.064 44b8 Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Site Characteristics Database/MANIFEST-000001

@@ -1,5 +1,2 @@
-2026/02/19-22:13:20.260 14918 Recovering log #205
-2026/02/19-22:13:20.265 14918 Level-0 table #207: started
-2026/02/19-22:13:20.270 14918 Level-0 table #207: 28454 bytes OK
-2026/02/19-22:13:20.293 14918 Delete type=3 #203
-2026/02/19-22:13:20.293 14918 Delete type=0 #205
+2026/02/22-07:54:01.142 a7f4 Creating DB C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Local Storage\leveldb since it was missing.
+2026/02/22-07:54:01.187 a7f4 Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Local Storage\leveldb/MANIFEST-000001
