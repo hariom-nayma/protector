@@ -1,2 +1,5 @@
-2026/02/22-07:54:12.285 7748 Creating DB C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\GCM Store since it was missing.
-2026/02/22-07:54:12.323 7748 Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\GCM Store/MANIFEST-000001
+2026/02/23-09:06:35.629 1b48f Recovering log #3
+2026/02/23-09:06:35.630 1b48f Level-0 table #5: started
+2026/02/23-09:06:35.638 1b48f Level-0 table #5: 857 bytes OK
+2026/02/23-09:06:35.647 1b48f Delete type=3 #2
+2026/02/23-09:06:35.647 1b48f Delete type=0 #3

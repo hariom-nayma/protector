@@ -1,6 +1,19 @@
-2026/02/22-07:54:00.568 44b8 Log #104: 1 ops saved to Table #106 OK
-2026/02/22-07:54:00.570 44b8 Archiving C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Site Characteristics Database/000104.log: OK
-2026/02/22-07:54:00.611 44b8 Table #105: 2 entries OK
-2026/02/22-07:54:00.611 44b8 Table #106: 1 entries OK
-2026/02/22-07:54:00.646 44b8 Archiving C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Site Characteristics Database/MANIFEST-000102: OK
-2026/02/22-07:54:01.005 44b8 **** Repaired leveldb C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Site Characteristics Database; recovered 2 files; 365 bytes. Some data may have been lost. ****
+2026/02/23-09:04:41.437 1b3ac Recovering log #108
+2026/02/23-09:04:41.444 1b3ac Level-0 table #108: started
+2026/02/23-09:04:41.451 1b3ac Level-0 table #108: 168 bytes OK
+2026/02/23-09:04:41.456 1b3ac Recovering log #111
+2026/02/23-09:04:41.459 1b3ac Level-0 table #109: started
+2026/02/23-09:04:41.466 1b3ac Level-0 table #109: 168 bytes OK
+2026/02/23-09:04:41.480 1b3ac Delete type=3 #1
+2026/02/23-09:04:41.480 1b3ac Delete type=2 #107
+2026/02/23-09:04:41.480 1b3ac Delete type=0 #108
+2026/02/23-09:04:41.480 1b3ac Delete type=2 #110
+2026/02/23-09:04:41.480 1b3ac Delete type=0 #111
+2026/02/23-09:04:41.482 1b388 Compacting 4@0 + 0@1 files
+2026/02/23-09:04:41.489 1b388 Generated table #113@0: 2 keys, 197 bytes
+2026/02/23-09:04:41.489 1b388 Compacted 4@0 + 0@1 files => 197 bytes
+2026/02/23-09:04:41.493 1b388 compacted to: files[ 0 1 0 0 0 0 0 ]
+2026/02/23-09:04:41.493 1b388 Delete type=2 #105
+2026/02/23-09:04:41.493 1b388 Delete type=2 #106
+2026/02/23-09:04:41.493 1b388 Delete type=2 #109
+2026/02/23-09:04:41.493 1b388 Delete type=2 #108

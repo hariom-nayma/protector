@@ -1,0 +1,9 @@
+2026/02/23-09:06:31.237 1b48d Recovering log #83
+2026/02/23-09:06:31.238 1b48d Level-0 table #85: started
+2026/02/23-09:06:31.238 1b48d Level-0 table #85: 0 bytes OK
+2026/02/23-09:06:31.238 1b48d Recovering log #89
+2026/02/23-09:06:31.240 1b48d Level-0 table #86: started
+2026/02/23-09:06:31.240 1b48d Level-0 table #86: 0 bytes OK
+2026/02/23-09:06:31.255 1b48d Delete type=0 #83
+2026/02/23-09:06:31.255 1b48d Delete type=0 #89
+2026/02/23-09:06:31.255 1b48d Delete type=3 #81

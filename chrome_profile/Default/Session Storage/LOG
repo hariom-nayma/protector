@@ -1,2 +1,6 @@
-2026/02/22-07:54:01.153 1ff0 Creating DB C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Session Storage since it was missing.
-2026/02/22-07:54:01.191 1ff0 Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Session Storage/MANIFEST-000001
+2026/02/23-09:06:31.548 1b4c0 Recovering log #113
+2026/02/23-09:06:31.548 1b4c0 Level-0 table #115: started
+2026/02/23-09:06:31.554 1b4c0 Level-0 table #115: 721 bytes OK
+2026/02/23-09:06:31.584 1b4c0 Delete type=0 #113
+2026/02/23-09:06:31.584 1b4c0 Delete type=3 #110
+2026/02/23-09:06:31.584 1b4c0 Delete type=3 #2

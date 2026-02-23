@@ -1,0 +1,9 @@
+2026/02/23-09:04:42.129 1b38b Recovering log #94
+2026/02/23-09:04:42.129 1b38b Level-0 table #96: started
+2026/02/23-09:04:42.129 1b38b Level-0 table #96: 0 bytes OK
+2026/02/23-09:04:42.130 1b38b Recovering log #100
+2026/02/23-09:04:42.130 1b38b Level-0 table #97: started
+2026/02/23-09:04:42.131 1b38b Level-0 table #97: 0 bytes OK
+2026/02/23-09:04:42.140 1b38b Delete type=0 #94
+2026/02/23-09:04:42.140 1b38b Delete type=0 #100
+2026/02/23-09:04:42.140 1b38b Delete type=3 #92

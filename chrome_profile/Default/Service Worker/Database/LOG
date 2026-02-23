@@ -1,2 +1,6 @@
-2026/02/22-07:54:05.160 459c Creating DB C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Service Worker\Database since it was missing.
-2026/02/22-07:54:05.173 459c Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Service Worker\Database/MANIFEST-000001
+2026/02/23-09:06:31.215 1b495 Recovering log #103
+2026/02/23-09:06:31.215 1b495 Level-0 table #105: started
+2026/02/23-09:06:31.223 1b495 Level-0 table #105: 683 bytes OK
+2026/02/23-09:06:31.238 1b495 Delete type=3 #101
+2026/02/23-09:06:31.238 1b495 Delete type=0 #103
+2026/02/23-09:06:31.238 1b495 Delete type=3 #2

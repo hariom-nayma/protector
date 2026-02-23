@@ -1,1 +1,6 @@
-2026/02/22-07:54:01.064 44b8 Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Site Characteristics Database/MANIFEST-000001
+2026/02/23-09:06:31.219 1b4b0 Recovering log #112
+2026/02/23-09:06:31.219 1b4b0 Level-0 table #115: started
+2026/02/23-09:06:31.225 1b4b0 Level-0 table #115: 168 bytes OK
+2026/02/23-09:06:31.243 1b4b0 Delete type=3 #109
+2026/02/23-09:06:31.243 1b4b0 Delete type=0 #112
+2026/02/23-09:06:31.243 1b4b0 Delete type=3 #107
