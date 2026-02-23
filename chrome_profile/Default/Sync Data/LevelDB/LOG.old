@@ -1,9 +1,5 @@
-2026/02/23-09:04:41.428 1b388 Recovering log #99
-2026/02/23-09:04:41.444 1b388 Level-0 table #101: started
-2026/02/23-09:04:41.444 1b388 Level-0 table #101: 0 bytes OK
-2026/02/23-09:04:41.447 1b388 Recovering log #105
-2026/02/23-09:04:41.450 1b388 Level-0 table #102: started
-2026/02/23-09:04:41.451 1b388 Level-0 table #102: 0 bytes OK
-2026/02/23-09:04:41.473 1b388 Delete type=0 #105
-2026/02/23-09:04:41.473 1b388 Delete type=0 #99
-2026/02/23-09:04:41.473 1b388 Delete type=3 #97
+2026/02/23-09:17:24.412 1b62a Recovering log #112
+2026/02/23-09:17:24.419 1b62a Level-0 table #114: started
+2026/02/23-09:17:24.420 1b62a Level-0 table #114: 0 bytes OK
+2026/02/23-09:17:24.438 1b62a Delete type=0 #112
+2026/02/23-09:17:24.438 1b62a Delete type=3 #110
