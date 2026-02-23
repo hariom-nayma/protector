@@ -1,5 +1,3 @@
-2026/02/23-09:19:59.562 1b77e Recovering log #224
-2026/02/23-09:19:59.573 1b77e Level-0 table #226: started
-2026/02/23-09:19:59.579 1b77e Level-0 table #226: 28544 bytes OK
-2026/02/23-09:19:59.608 1b77e Delete type=0 #224
-2026/02/23-09:19:59.608 1b77e Delete type=3 #222
+2026/02/23-23:16:11.060 21c8 Reusing MANIFEST C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/02/23-23:16:11.099 21c8 Recovering log #4
+2026/02/23-23:16:11.131 21c8 Reusing old log C:\Users\hario\Projects\Telegram Bots\SheinBot\chrome_profile\Default\Local Storage\leveldb/000004.log 

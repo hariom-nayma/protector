@@ -1,4 +1,21 @@
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
+
+// STABILITY: Ensure taskkill is in PATH for Windows (silences Puppeteer errors)
+if (process.platform === 'win32') {
+    const sysPaths = [
+        'C:\\Windows\\System32',
+        'C:\\Windows\\System32\\Wbem',
+        'C:\\Windows\\System32\\WindowsPowerShell\\v1.0'
+    ];
+    sysPaths.forEach(p => {
+        if (!process.env.PATH.includes(p)) {
+            process.env.PATH = process.env.PATH + ';' + p;
+        }
+    });
+}
+
 const TelegramBot = require('node-telegram-bot-api');
 const browserManager = require('./browserManager');
 const db = require('./databaseManager');
@@ -77,6 +94,9 @@ const getHelpText = (userId) => {
 /protect <code>[COUPONS]</code> - Start protecting coupons (e.g., <code>/protect CP1 CP2</code>)
 /release <code>[COUPON]</code> - Stop checking a specific coupon
 /check <code>[COUPONS]</code> - One-time check of coupons
+/login - Manual login with headful browser
+/login_noproxy - Manual login without proxy
+/login_cookies [JSON] - Login using JSON cookies (expert)
 /stop - Stop all protection and scanning tasks
 /scan - Start wishlist or stock scan (if enabled)`;
 
@@ -174,12 +194,97 @@ bot.onText(/\/cart_url/, (msg) => {
 
     const url = 'https://www.sheinindia.in/c/sverse-5939-37961';
     bot.sendMessage(chatId,
-        `🛒 <b>Manual Cart Setup</b>\n\nIf the bot fails to add items, please visit this link and add a cheap item to your cart manually:\n\n<a href="${url}">👉 Shein Verse Collection</a>\n\nAfter adding, run /start again.`,
+        `🛒 <b>Manual Cart Setup</b>\n\nIf the bot fails to add items, please visit this link and add a cheap item to your cart manually:\n\n<a href="${url}">👉 Shein Verse Collection</a>\n\n<b>Recommended:</b> Use /login first to authenticate!\n\nAfter adding, run /start again.`,
         { parse_mode: 'HTML' }
     );
 });
 
-// --- Command: /add_item (Manual Cart Add) ---
+// --- Command: /login ---
+bot.onText(/\/login/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!checkAccess(msg)) return;
+
+    bot.sendMessage(chatId, "🔐 <b>Opening login window (WITH PROXY)...</b>\n\nPlease check the browser on the host machine.\n\n💡 <i>Tip: If you get 'Access Denied', try using /login_noproxy</i>", { parse_mode: 'HTML' });
+
+    try {
+        await browserManager.loginManual(true);
+        bot.sendMessage(chatId, "✅ <b>Login process complete!</b>\nYour session has been saved.", { parse_mode: 'HTML' });
+    } catch (e) {
+        bot.sendMessage(chatId, `❌ <b>Login Error:</b> ${e.message}`, { parse_mode: 'HTML' });
+    }
+});
+
+// --- Command: /login_noproxy ---
+bot.onText(/\/login_noproxy/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!checkAccess(msg)) return;
+
+    bot.sendMessage(chatId, "🔐 <b>Opening login window (NO PROXY)...</b>\n\nThis will use your home IP. This is often more reliable for the initial login.", { parse_mode: 'HTML' });
+
+    try {
+        await browserManager.loginManual(false);
+        bot.sendMessage(chatId, "✅ <b>Login process complete!</b>\nYour session has been saved.", { parse_mode: 'HTML' });
+    } catch (e) {
+        bot.sendMessage(chatId, `❌ <b>Login Error:</b> ${e.message}`, { parse_mode: 'HTML' });
+    }
+});
+
+// --- Command: /login_cookies ---
+bot.onText(/\/login_cookies(.*)/s, async (msg, match) => {
+    const chatId = msg.chat.id;
+    if (!checkAccess(msg)) return;
+
+    const json = match[1] ? match[1].trim() : "";
+    if (!json) {
+        return bot.sendMessage(chatId, "⚠️ Usage: `/login_cookies [COOKIES_DATA]`\n\nYou can paste **JSON** or the content of a **Netscape cookies.txt** file.", { parse_mode: 'Markdown' });
+    }
+
+    bot.sendMessage(chatId, "⏳ **Applying cookies...** Please wait.", { parse_mode: 'HTML' });
+
+    try {
+        const result = await browserManager.loginWithCookies(json, true);
+        if (result.success) {
+            bot.sendMessage(chatId, "✅ <b>Cookie login successful!</b>\nYour session has been validated and saved.", { parse_mode: 'HTML' });
+        } else {
+            bot.sendMessage(chatId, `⚠️ <b>Cookie login failed:</b> ${result.error}`, { parse_mode: 'HTML' });
+        }
+    } catch (e) {
+        bot.sendMessage(chatId, `❌ <b>Error:</b> ${e.message}`, { parse_mode: 'HTML' });
+    }
+});
+
+// --- Command: /cookies (Reply to File) ---
+bot.on('message', async (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text || "";
+    if (!text.startsWith('/cookies')) return;
+    if (!checkAccess(msg)) return;
+
+    // Check if it's a reply to a document
+    if (!msg.reply_to_message || !msg.reply_to_message.document) {
+        return bot.sendMessage(chatId, "⚠️ **Usage**: Please send your `cookies.txt` file first, then **reply** to it with `/cookies`.", { parse_mode: 'HTML' });
+    }
+
+    const doc = msg.reply_to_message.document;
+    bot.sendMessage(chatId, "⏳ **Downloading and applying cookies...**", { parse_mode: 'HTML' });
+
+    try {
+        const filePath = await bot.downloadFile(doc.file_id, __dirname);
+        const cookieData = fs.readFileSync(filePath, 'utf8');
+
+        // Clean up temp file
+        fs.unlinkSync(filePath);
+
+        const result = await browserManager.loginWithCookies(cookieData, true);
+        if (result.success) {
+            bot.sendMessage(chatId, "✅ <b>Cookie login successful!</b>\nYour session has been validated and saved.", { parse_mode: 'HTML' });
+        } else {
+            bot.sendMessage(chatId, `⚠️ <b>Cookie login failed:</b> ${result.error}`, { parse_mode: 'HTML' });
+        }
+    } catch (e) {
+        bot.sendMessage(chatId, `❌ <b>Error:</b> ${e.message}`, { parse_mode: 'HTML' });
+    }
+});
 bot.onText(/\/add_item(?: (.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     if (!checkAccess(msg)) return;
@@ -196,9 +301,9 @@ bot.onText(/\/add_item(?: (.+))?/, async (msg, match) => {
     const result = await browserManager.addToCart(url);
 
     if (result.success) {
-        bot.sendMessage(chatId, `✅ <b>Success!</b> Item added.\nCart Count: ${result.count}`, { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, `✅ <b>Success!</b> Item added.\nCart Count: ${result.count}\nSession: ${result.isLogged ? "Logged In" : "Guest"}`, { parse_mode: 'HTML' });
     } else {
-        bot.sendMessage(chatId, `❌ <b>Failed:</b> ${result.error}`, { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, `❌ <b>Failed:</b> ${result.error}\n\n💡 <i>Tip: Try running /login first to bypass guest restrictions.</i>`, { parse_mode: 'HTML' });
     }
 });
 
