@@ -105,6 +105,20 @@ bot.onText(/\/help/, (msg) => {
     bot.sendMessage(chatId, getHelpText(userId), { parse_mode: 'HTML' });
 });
 
+// --- Command: /check_ip (Admin only) ---
+bot.onText(/\/check_ip/, async (msg) => {
+    if (!isAdmin(msg.from.id)) return;
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, "🔍 Checking browser IP via proxy...");
+
+    try {
+        const ip = await browserManager.checkMyIp();
+        bot.sendMessage(chatId, `🌐 <b>Current Browser IP:</b> <code>${ip}</code>`, { parse_mode: 'HTML' });
+    } catch (err) {
+        bot.sendMessage(chatId, `❌ Error checking IP: ${err.message}`);
+    }
+});
+
 // --- Command: /check ---
 bot.onText(/\/check(?: (.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;

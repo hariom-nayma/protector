@@ -517,6 +517,20 @@ class BrowserManager {
         return result;
     }
 
+    async checkMyIp() {
+        console.log("🔍 Checking browser IP...");
+        await this.initBrowser();
+        try {
+            await this.page.goto('https://ipv4.webshare.io/', { waitUntil: 'networkidle2', timeout: 30000 });
+            const ip = await this.page.evaluate(() => document.body.innerText.trim());
+            console.log(`🌐 Browser IP: ${ip}`);
+            return ip;
+        } catch (e) {
+            console.error("❌ Failed to check IP:", e.message);
+            return `Error: ${e.message}`;
+        }
+    }
+
     async getProductLinks() {
         return await this.page.evaluate(() => {
             const links = new Set();
