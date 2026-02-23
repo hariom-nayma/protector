@@ -33,6 +33,21 @@ const isAdmin = (userId) => {
     return process.env.ADMIN_ID && String(userId) === String(process.env.ADMIN_ID);
 };
 
+// --- Helper: Coupon Extraction ---
+const extractCoupons = (text) => {
+    if (!text) return [];
+    // 1. Try to find SV patterns (User says mostly starts with SV and 12-18 char long)
+    const svMatches = text.match(/SV[A-Z0-9]{8,20}/gi);
+    if (svMatches && svMatches.length > 0) {
+        // Return unique capitalized matches
+        return [...new Set(svMatches.map(c => c.toUpperCase()))];
+    }
+    
+    // 2. Fallback: Split by any whitespace, newline or comma (Improvement over single space)
+    const splitMatches = text.split(/[\s,]+/).map(c => c.trim().toUpperCase()).filter(c => c.length >= 3);
+    return [...new Set(splitMatches)];
+};
+
 // --- Helper: Access Check ---
 const checkAccess = (msg) => {
     const userId = msg.from.id;
@@ -149,7 +164,20 @@ bot.onText(/\/check(?: (.+))?/, async (msg, match) => {
         return bot.sendMessage(chatId, "⚠️ Usage: <code>/check COUPON1 COUPON2</code>", { parse_mode: 'HTML' });
     }
 
-    const coupons = input.split(' ').map(c => c.trim()).filter(c => c);
+    const coupons = extractCoupons(input);
+    const userId = msg.from.id;
+
+    if (coupons.length === 0) {
+        return bot.sendMessage(chatId, "⚠️ No valid coupons provided.", { parse_mode: 'HTML' });
+    }
+
+    // ENFORCE LIMITS
+    if (!isAdmin(userId) && !db.isVip(userId) && coupons.length > 3) {
+        return bot.sendMessage(chatId, 
+            "⚠️ <b>Limit Exceeded</b>\nStandard users can only <code>/check</code> up to 3 coupons at once.\n\nContact @clickme4it to upgrade to 💎 <b>VIP</b> for unlimited checks!", 
+            { parse_mode: 'HTML' }
+        );
+    }
 
     if (coupons.length === 0) {
         return bot.sendMessage(chatId, "⚠️ No valid coupons provided.", { parse_mode: 'HTML' });
@@ -337,7 +365,7 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
         return bot.sendMessage(chatId, "⚠️ Usage: <code>/protect COUPON1 COUPON2</code>", { parse_mode: 'HTML' });
     }
 
-    const newCoupons = input.split(' ').map(c => c.trim()).filter(c => c);
+    const newCoupons = extractCoupons(input);
 
     if (newCoupons.length === 0) {
         return bot.sendMessage(chatId, "⚠️ No valid coupons provided.");
@@ -347,6 +375,16 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
         userProtections.set(userId, new Set());
     }
     const userSet = userProtections.get(userId);
+
+    // ENFORCE LIMITS
+    const totalAfterAdd = userSet.size + newCoupons.filter(c => !userSet.has(c)).length;
+    if (!isAdmin(userId) && !db.isVip(userId) && totalAfterAdd > 3) {
+        return bot.sendMessage(chatId, 
+            `⚠️ <b>Limit Exceeded</b>\nYou are trying to protect ${totalAfterAdd} coupons total. Standard users are limited to 3.\n\nContact @clickme4it to upgrade to 💎 <b>VIP</b> for unlimited protection!`, 
+            { parse_mode: 'HTML' }
+        );
+    }
+
     newCoupons.forEach(c => userSet.add(c));
 
     // Reset user's message ID to force a new message
@@ -506,12 +544,20 @@ async function runProtectionCycle() {
 bot.onText(/\/release (.+)/, (msg, match) => {
     if (!checkAccess(msg)) return;
     const userId = msg.from.id;
-    const coupon = match[1].trim();
+    const input = match[1].trim();
+    const coupons = extractCoupons(input);
+
+    if (coupons.length === 0) return bot.sendMessage(chatId, "⚠️ Please specify coupon(s) to release.");
 
     if (userProtections.has(userId)) {
         const userSet = userProtections.get(userId);
-        if (userSet.delete(coupon)) {
-            bot.sendMessage(msg.chat.id, `✅ Released coupon: ${coupon}`);
+        const released = [];
+        coupons.forEach(c => {
+            if (userSet.delete(c)) released.push(c);
+        });
+
+        if (released.length > 0) {
+            bot.sendMessage(msg.chat.id, `✅ Released: <code>${released.join(', ')}</code>`, { parse_mode: 'HTML' });
             // Clean up if empty
             if (userSet.size === 0) {
                 userProtections.delete(userId);
@@ -600,6 +646,35 @@ bot.onText(/\/add (\d+)/, (msg, match) => {
     }
 });
 
+// /vip [ID]
+bot.onText(/\/vip (\d+)/, (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+    const targetId = match[1];
+
+    if (!db.isAuthorized(targetId)) {
+        return bot.sendMessage(msg.chat.id, `⚠️ User <code>${targetId}</code> must be authorized (/add) before making them VIP.`, { parse_mode: 'HTML' });
+    }
+
+    if (db.setVip(targetId, true)) {
+        bot.sendMessage(msg.chat.id, `💎 User <code>${targetId}</code> upgraded to <b>VIP</b>!`, { parse_mode: 'HTML' });
+        bot.sendMessage(targetId, `🎊 <b>Congratulations!</b> 🎊\nYou have been upgraded to 💎 <b>VIP Status</b>!\n\nAll coupon limits have been removed for you. Enjoy!`, { parse_mode: 'HTML' }).catch(() => {});
+    } else {
+        bot.sendMessage(msg.chat.id, "❌ Error upgrading user.");
+    }
+});
+
+// /unvip [ID]
+bot.onText(/\/unvip (\d+)/, (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+    const targetId = match[1];
+
+    if (db.setVip(targetId, false)) {
+        bot.sendMessage(msg.chat.id, `🔸 User <code>${targetId}</code> downgraded to standard user.`, { parse_mode: 'HTML' });
+    } else {
+        bot.sendMessage(msg.chat.id, "❌ Error downgrading user.");
+    }
+});
+
 // /remove [ID]
 bot.onText(/\/remove (\d+)/, (msg, match) => {
     if (!isAdmin(msg.from.id)) return;
@@ -617,7 +692,15 @@ bot.onText(/\/users/, (msg) => {
     if (!isAdmin(msg.from.id)) return;
 
     const users = db.getAuthorizedUsers();
-    bot.sendMessage(msg.chat.id, `👥 <b>Authorized Users:</b>\n<code>${users.length > 0 ? users.join('\n') : 'No users added'}</code>`, { parse_mode: 'HTML' });
+    let report = `👥 <b>Authorized Users:</b> (${users.length})\n\n`;
+    
+    users.forEach(u => {
+        const tier = u.isVip ? '💎 VIP' : '👤 STD';
+        report += `${tier} - <code>${u.id}</code>\n`;
+    });
+
+    if (users.length === 0) report = "No users added.";
+    bot.sendMessage(msg.chat.id, report, { parse_mode: 'HTML' });
 });
 
 // --- Callback Query Handler ---
