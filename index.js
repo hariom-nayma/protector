@@ -42,7 +42,7 @@ const extractCoupons = (text) => {
         // Return unique capitalized matches
         return [...new Set(svMatches.map(c => c.toUpperCase()))];
     }
-    
+
     // 2. Fallback: Split by any whitespace, newline or comma (Improvement over single space)
     const splitMatches = text.split(/[\s,]+/).map(c => c.trim().toUpperCase()).filter(c => c.length >= 3);
     return [...new Set(splitMatches)];
@@ -173,8 +173,8 @@ bot.onText(/\/check(?: (.+))?/, async (msg, match) => {
 
     // ENFORCE LIMITS
     if (!isAdmin(userId) && !db.isVip(userId) && coupons.length > 3) {
-        return bot.sendMessage(chatId, 
-            "⚠️ <b>Limit Exceeded</b>\nStandard users can only <code>/check</code> up to 3 coupons at once.\n\nContact @clickme4it to upgrade to 💎 <b>VIP</b> for unlimited checks!", 
+        return bot.sendMessage(chatId,
+            "⚠️ <b>Limit Exceeded</b>\nStandard users can only <code>/check</code> up to 3 coupons at once.\n\nContact @clickme4it to upgrade to 💎 <b>VIP</b> for unlimited checks!",
             { parse_mode: 'HTML' }
         );
     }
@@ -214,6 +214,7 @@ let protectionInterval = null;
 let protectionIntervalMinutes = 3; // Default 3 mins
 const userProtections = new Map(); // UserId -> Set<Coupon>
 const lastUserMessageIds = new Map(); // UserId -> MessageId
+let lastGlobalResults = new Map(); // Coupon -> Status Result object
 
 // --- Command: /cart_url ---
 bot.onText(/\/cart_url/, (msg) => {
@@ -379,8 +380,8 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
     // ENFORCE LIMITS
     const totalAfterAdd = userSet.size + newCoupons.filter(c => !userSet.has(c)).length;
     if (!isAdmin(userId) && !db.isVip(userId) && totalAfterAdd > 3) {
-        return bot.sendMessage(chatId, 
-            `⚠️ <b>Limit Exceeded</b>\nYou are trying to protect ${totalAfterAdd} coupons total. Standard users are limited to 3.\n\nContact @clickme4it to upgrade to 💎 <b>VIP</b> for unlimited protection!`, 
+        return bot.sendMessage(chatId,
+            `⚠️ <b>Limit Exceeded</b>\nYou are trying to protect ${totalAfterAdd} coupons total. Standard users are limited to 3.\n\nContact @clickme4it to upgrade to 💎 <b>VIP</b> for unlimited protection!`,
             { parse_mode: 'HTML' }
         );
     }
@@ -453,7 +454,10 @@ async function runProtectionCycle() {
 
         // Map results for quick lookup
         const resultsMap = new Map();
-        results.forEach(r => resultsMap.set(r.code, r));
+        results.forEach(r => {
+            resultsMap.set(r.code, r);
+            lastGlobalResults.set(r.code, { status: r.status, time: timeString });
+        });
 
         const now = new Date();
         const timeString = now.toLocaleTimeString('en-IN', {
@@ -621,8 +625,20 @@ bot.onText(/\/admin_status/, (msg) => {
 
     let status = "📊 <b>Global Protection Status</b>\n\n";
     for (const [uid, coupons] of userProtections) {
-        status += `👤 <b>User ${uid}</b>: <code>${Array.from(coupons).join(', ')}</code>\n`;
+        status += `👤 <b>User ${uid}</b>:\n`;
+        coupons.forEach(c => {
+            const last = lastGlobalResults.get(c);
+            const statusText = last ? `[${last.status}]` : "[WAITING]";
+            status += `  ∟ <code>${c}</code> ${statusText}\n`;
+        });
+        status += "\n";
     }
+
+    if (lastGlobalResults.size > 0) {
+        const sample = Array.from(lastGlobalResults.values())[0];
+        if (sample && sample.time) status += `\n<i>⏱ Last Global Cycle: ${sample.time}</i>`;
+    }
+
     bot.sendMessage(msg.chat.id, status, { parse_mode: 'HTML' });
 });
 
@@ -657,7 +673,7 @@ bot.onText(/\/vip (\d+)/, (msg, match) => {
 
     if (db.setVip(targetId, true)) {
         bot.sendMessage(msg.chat.id, `💎 User <code>${targetId}</code> upgraded to <b>VIP</b>!`, { parse_mode: 'HTML' });
-        bot.sendMessage(targetId, `🎊 <b>Congratulations!</b> 🎊\nYou have been upgraded to 💎 <b>VIP Status</b>!\n\nAll coupon limits have been removed for you. Enjoy!`, { parse_mode: 'HTML' }).catch(() => {});
+        bot.sendMessage(targetId, `🎊 <b>Congratulations!</b> 🎊\nYou have been upgraded to 💎 <b>VIP Status</b>!\n\nAll coupon limits have been removed for you. Enjoy!`, { parse_mode: 'HTML' }).catch(() => { });
     } else {
         bot.sendMessage(msg.chat.id, "❌ Error upgrading user.");
     }
@@ -693,7 +709,7 @@ bot.onText(/\/users/, (msg) => {
 
     const users = db.getAuthorizedUsers();
     let report = `👥 <b>Authorized Users:</b> (${users.length})\n\n`;
-    
+
     users.forEach(u => {
         const tier = u.isVip ? '💎 VIP' : '👤 STD';
         report += `${tier} - <code>${u.id}</code>\n`;
