@@ -34,9 +34,12 @@ class BrowserManager {
 
         if (selectedProxy && selectedProxy.includes('@')) {
             try {
-                // Handle http://user:pass@host:port
-                const urlObj = new URL(selectedProxy.startsWith('http') ? selectedProxy : `http://${selectedProxy}`);
-                finalProxyServer = `${urlObj.protocol}//${urlObj.host}`;
+                // Handle http://user:pass@host:port or user:pass@host:port
+                const urlString = selectedProxy.startsWith('http') ? selectedProxy : `http://${selectedProxy}`;
+                const urlObj = new URL(urlString);
+                
+                // For --proxy-server we only want host:port
+                finalProxyServer = urlObj.host; 
                 if (urlObj.username && urlObj.password) {
                     proxyAuth = { username: urlObj.username, password: urlObj.password };
                 }
@@ -79,37 +82,38 @@ class BrowserManager {
             throw new Error('Could not launch browser. Make sure dependencies are installed.');
         }
 
-        // ... open pages logic ...
-        
-        this.page = await this.browser.newPage();
-
-        // Proxy Authentication
+        // Setup global proxy authentication
         const username = proxyAuth ? proxyAuth.username : process.env.PROXY_USERNAME;
         const password = proxyAuth ? proxyAuth.password : process.env.PROXY_PASSWORD;
 
         if (username && password) {
-            await this.page.authenticate({ username, password });
-        }
-
-        // Workaround for "Requesting main frame too early" with stealth plugin:
-        // Don't use the existing pages[0]. Open a brand new context.
-        try {
-            const pages = await this.browser.pages();
-            // Close all existing pages (usually just the default about:blank)
-            await Promise.all(pages.map(p => p.close()));
-        } catch (e) {
-            console.log("Warning: Could not close initial pages:", e.message);
+            console.log(`[DEBUG] Applying proxy authentication for ${username}`);
+            // This ensures ANY page created (including initial ones) gets authenticated
+            this.browser.on('targetcreated', async (target) => {
+                if (target.type() === 'page') {
+                    const p = await target.page();
+                    if (p) {
+                        await p.authenticate({ username, password }).catch(() => {});
+                    }
+                }
+            });
         }
 
         this.page = await this.browser.newPage();
 
-        // Proxy Authentication
-        if (process.env.PROXY_USERNAME && process.env.PROXY_PASSWORD) {
-            await this.page.authenticate({
-                username: process.env.PROXY_USERNAME,
-                password: process.env.PROXY_PASSWORD
-            });
+        // Also authenticate the primary page immediately
+        if (username && password) {
+            await this.page.authenticate({ username, password }).catch(() => {});
         }
+
+        // Workaround for "Requesting main frame too early" with stealth plugin:
+        // Close initial about:blank page if it exists
+        try {
+            const pages = await this.browser.pages();
+            if (pages.length > 1) {
+                await pages[0].close();
+            }
+        } catch (e) {}
 
         // Set Viewport
         await this.page.setViewport({ width: 1366, height: 768 });
