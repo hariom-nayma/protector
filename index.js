@@ -455,19 +455,19 @@ async function runProtectionCycle() {
         // Use API based check (headless logic) - efficient batch check
         const results = await browserManager.checkCoupons(couponsToCheck, { screenshot: false, detailed: true });
 
-        // Map results for quick lookup
-        const resultsMap = new Map();
-        results.forEach(r => {
-            resultsMap.set(r.code, r);
-            lastGlobalResults.set(r.code, { status: r.status, time: timeString });
-        });
-
         const now = new Date();
         const timeString = now.toLocaleTimeString('en-IN', {
             hour: '2-digit',
             minute: '2-digit',
             second: '2-digit',
             timeZone: 'Asia/Kolkata'
+        });
+
+        // Map results for quick lookup
+        const resultsMap = new Map();
+        results.forEach(r => {
+            resultsMap.set(r.code, r);
+            lastGlobalResults.set(r.code, { status: r.status, time: timeString });
         });
 
         // Distribute results to each User
