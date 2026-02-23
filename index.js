@@ -106,12 +106,9 @@ const getHelpText = (userId) => {
 /myid - Show your Telegram ID
 
 🔒 <b>Authorized User Commands:</b>
-/protect <code>[COUPONS]</code> - Start protecting coupons (e.g., <code>/protect CP1 CP2</code>)
+/protect <code>[COUPONS]</code> - Start protecting coupons
 /release <code>[COUPON]</code> - Stop checking a specific coupon
 /check <code>[COUPONS]</code> - One-time check of coupons
-/login - Manual login with headful browser
-/login_noproxy - Manual login without proxy
-/login_cookies [JSON] - Login using JSON cookies (expert)
 /stop - Stop all protection and scanning tasks
 /scan - Start wishlist or stock scan (if enabled)`;
 
@@ -119,11 +116,17 @@ const getHelpText = (userId) => {
         helpText += `\n\n👮‍♂️ <b>Admin Commands:</b>
 /add <code>[ID]</code> - Authorize a user ID
 /remove <code>[ID]</code> - Revoke access from a user ID
+/vip <code>[ID]</code> - Upgrade user to VIP (No limits)
+/unvip <code>[ID]</code> - Remove VIP status
+/broadcast <code>[MSG]</code> - Send message to all users
 /users - List all authorized users
-/admin_status - View global protection status
-/set_interval <code>[MIN]</code> - Change check frequency (Default: 3m)
-/add_item <code>[URL]</code> - Manually add item to cart
-/stopall - Emergency stop for ALL users`;
+/admin_status - View global status + results
+/set_interval <code>[MIN]</code> - Change check frequency
+/login - Manual login (Proxy)
+/login_noproxy - Manual login (No Proxy)
+/login_cookies - Login via JSON/Netscape
+/add_item <code>[URL]</code> - Manually add item
+/stopall - Emergency stop ALL`;
     }
 
     helpText += `\n\n<i>Tip: Tap on a command to copy it (on mobile)</i>`;
@@ -231,7 +234,7 @@ bot.onText(/\/cart_url/, (msg) => {
 // --- Command: /login ---
 bot.onText(/\/login/, async (msg) => {
     const chatId = msg.chat.id;
-    if (!checkAccess(msg)) return;
+    if (!isAdmin(msg.from.id)) return;
 
     bot.sendMessage(chatId, "🔐 <b>Opening login window (WITH PROXY)...</b>\n\nPlease check the browser on the host machine.\n\n💡 <i>Tip: If you get 'Access Denied', try using /login_noproxy</i>", { parse_mode: 'HTML' });
 
@@ -246,7 +249,7 @@ bot.onText(/\/login/, async (msg) => {
 // --- Command: /login_noproxy ---
 bot.onText(/\/login_noproxy/, async (msg) => {
     const chatId = msg.chat.id;
-    if (!checkAccess(msg)) return;
+    if (!isAdmin(msg.from.id)) return;
 
     bot.sendMessage(chatId, "🔐 <b>Opening login window (NO PROXY)...</b>\n\nThis will use your home IP. This is often more reliable for the initial login.", { parse_mode: 'HTML' });
 
@@ -261,7 +264,7 @@ bot.onText(/\/login_noproxy/, async (msg) => {
 // --- Command: /login_cookies ---
 bot.onText(/\/login_cookies(.*)/s, async (msg, match) => {
     const chatId = msg.chat.id;
-    if (!checkAccess(msg)) return;
+    if (!isAdmin(msg.from.id)) return;
 
     const json = match[1] ? match[1].trim() : "";
     if (!json) {
@@ -287,7 +290,7 @@ bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text || "";
     if (!text.startsWith('/cookies')) return;
-    if (!checkAccess(msg)) return;
+    if (!isAdmin(msg.from.id)) return;
 
     // Check if it's a reply to a document
     if (!msg.reply_to_message || !msg.reply_to_message.document) {
@@ -701,6 +704,37 @@ bot.onText(/\/remove (\d+)/, (msg, match) => {
     } else {
         bot.sendMessage(msg.chat.id, `⚠️ User <code>${targetId}</code> not found.`, { parse_mode: 'HTML' });
     }
+});
+
+// /broadcast [Message]
+bot.onText(/\/broadcast (.+)/s, async (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+
+    const broadcastMsg = match[1];
+    const users = db.getAuthorizedUsers();
+    
+    if (users.length === 0) {
+        return bot.sendMessage(msg.chat.id, "⚠️ No authorized users to broadcast to.");
+    }
+
+    bot.sendMessage(msg.chat.id, `🚀 <b>Starting broadcast to ${users.length} users...</b>`, { parse_mode: 'HTML' });
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const user of users) {
+        try {
+            await bot.sendMessage(user.id, `📢 <b>MESSAGE FROM ADMIN</b> 📢\n\n${broadcastMsg}`, { parse_mode: 'HTML' });
+            successCount++;
+            // Small delay to prevent rate limiting
+            await new Promise(r => setTimeout(r, 60)); 
+        } catch (e) {
+            console.error(`Broadcast failed for ${user.id}:`, e.message);
+            failCount++;
+        }
+    }
+
+    bot.sendMessage(msg.chat.id, `✅ <b>Broadcast Complete!</b>\n\n📦 Total users: ${users.length}\n✅ Success: ${successCount}\n❌ Failed: ${failCount}`, { parse_mode: 'HTML' });
 });
 
 // /users
