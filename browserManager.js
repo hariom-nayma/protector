@@ -41,7 +41,9 @@ class BrowserManager {
 
                 // 1. Proxy Selection
                 let selectedProxy = null;
-                if (!forceNoProxy) {
+                const useProxyGlobal = process.env.USE_PROXY !== 'false';
+
+                if (!forceNoProxy && useProxyGlobal) {
                     let proxyUrl = process.env.PROXY_URL;
                     const rawProxyList = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [];
                     const proxyList = rawProxyList
@@ -55,6 +57,8 @@ class BrowserManager {
                     } else if (proxyList.length > 0) {
                         selectedProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
                     }
+                } else if (!useProxyGlobal) {
+                    console.log("[DEBUG] Proxy usage is GLOBALLY DISABLED (USE_PROXY=false)");
                 }
 
                 // 2. STABILITY: Check if we can reuse the current browser
@@ -293,6 +297,12 @@ class BrowserManager {
         }
 
         if (blockDetected) {
+            const useProxyGlobal = process.env.USE_PROXY !== 'false';
+            if (!useProxyGlobal) {
+                console.log("⚠️ Block detected but proxy rotation is disabled (USE_PROXY=false). retrying with same IP might not work.");
+                return false; 
+            }
+
             if (retryCount < maxRetries) {
                 console.log(`⚠️ Block or Proxy failure detected (Try ${retryCount + 1}). Rotatings session/proxy...`);
                 this.stickyProxy = null; 
