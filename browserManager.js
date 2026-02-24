@@ -370,50 +370,60 @@ class BrowserManager {
     async loginWithCookies(cookiesData, useProxy = true, retryCount = 0) {
         const MAX_RETRIES = 5;
         let cookies;
-        try {
-            // Try JSON first
-            cookies = JSON.parse(cookiesData);
-            if (!Array.isArray(cookies)) cookies = [cookies];
-        } catch (e) {
-            // Try Netscape parsing
-            console.log("[DEBUG] JSON parse failed, trying Netscape format...");
-            cookies = this.parseNetscapeCookies(cookiesData);
-            if (cookies.length === 0) {
-                throw new Error("Invalid Cookie format. Please provide JSON or standard Netscape cookies.txt content.");
+        
+        // Only parse cookies on first try to avoid redundant logs
+        if (retryCount === 0) {
+            try {
+                // Try JSON first
+                cookies = JSON.parse(cookiesData);
+                if (!Array.isArray(cookies)) cookies = [cookies];
+            } catch (e) {
+                // Try Netscape parsing
+                console.log("[DEBUG] JSON parse failed, trying Netscape format...");
+                cookies = this.parseNetscapeCookies(cookiesData);
+                if (cookies.length === 0) {
+                    throw new Error("Invalid Cookie format. Please provide JSON or standard Netscape cookies.txt content.");
+                }
+            }
+            this._lastCookies = cookies; // Cache for retries
+        } else {
+            cookies = this._lastCookies;
+        }
+
+        // INITIALIZATION: Only init if browser is not already prepared by retry logic
+        if (!this.browser || !this.page || this.page.isClosed()) {
+            await this.closeBrowser();
+            await this.initBrowser(true, false, !useProxy);
+
+            // Initial connectivity check
+            if (await this.handleBlockIfNeeded(null, retryCount, MAX_RETRIES)) {
+                return await this.loginWithCookies(cookiesData, useProxy, retryCount + 1);
             }
         }
 
-        await this.closeBrowser();
-        await this.initBrowser(true, false, !useProxy);
-
-        // Check for initial block / proxy failure
-        if (await this.handleBlockIfNeeded(null, retryCount, MAX_RETRIES)) {
-            return await this.loginWithCookies(cookiesData, useProxy, retryCount + 1);
-        }
-
-        console.log(`[DEBUG] Attempting to set ${cookies.length} cookies...`);
+        console.log(`[DEBUG] Attempting to set ${cookies.length} cookies... (Try ${retryCount + 1})`);
         try {
-            // Apply cookies to current page
+            // Apply cookies
             for (const cookie of cookies) {
-                try {
-                    await this.page.setCookie(cookie);
-                } catch (err) {
-                    // Ignore minor cookie errors
-                }
+                try { await this.page.setCookie(cookie); } catch (err) { }
             }
 
             // Navigate to home to confirm session
             console.log("Verifying cookie session...");
             try {
-                await this.page.goto('https://www.sheinindia.in/', { waitUntil: 'domcontentloaded', timeout: 45000 });
+                await this.page.goto('https://www.sheinindia.in/', { waitUntil: 'domcontentloaded', timeout: 50000 });
             } catch (e) {
+                console.log(`[DEBUG] Navigation error in loginWithCookies: ${e.message}`);
+                // ERROR-BASED ROTATION
                 if (await this.handleBlockIfNeeded(e, retryCount, MAX_RETRIES)) {
+                    // SETTLEMENT WAIT: Give the new proxy/tunnel a moment to stabilize
+                    await new Promise(r => setTimeout(r, 4000));
                     return await this.loginWithCookies(cookiesData, useProxy, retryCount + 1);
                 }
                 throw e;
             }
 
-            // Final sanity check for block AFTER navigation
+            // CONTENT-BASED ROTATION
             if (await this.handleBlockIfNeeded(null, retryCount, MAX_RETRIES)) {
                 return await this.loginWithCookies(cookiesData, useProxy, retryCount + 1);
             }
@@ -437,30 +447,32 @@ class BrowserManager {
             // 2. Dual-Layer Validation
             const activeCookies = await this.page.cookies();
             const lsCookie = activeCookies.find(c => c.name === 'LS' && c.value === 'LOGGED_IN');
-            const { isLoggedUI, textSnippet } = await this.page.evaluate(() => {
+            const { isLoggedUI } = await this.page.evaluate(() => {
                 const text = document.body.innerText.toLowerCase();
-                const found = text.includes('sign out') || text.includes('my orders') || text.includes('my profile') || text.includes('hi,');
-                return { isLoggedUI: found, textSnippet: text.substring(0, 500) };
+                return { isLoggedUI: text.includes('sign out') || text.includes('my orders') || text.includes('my profile') || text.includes('hi,') };
             });
 
             if (lsCookie || isLoggedUI) {
-                console.log(`✅ Cookie session verified! (LS Cookie: ${!!lsCookie}, UI Text: ${isLoggedUI})`);
+                console.log(`✅ Cookie session verified! (LS: ${!!lsCookie}, UI: ${isLoggedUI})`);
                 this.stickyProxy = useProxy ? this.currentProxy : null; 
                 return { success: true };
             } else {
                 console.log("⚠️ Cookies applied but session not detected.");
                 const screenPath = `cookie_fail_${Date.now()}.png`;
                 await this.page.screenshot({ path: screenPath });
-                return { success: false, error: "Session not active. Shein might have rejected these cookies or the Proxy IP is blocked." };
+                return { success: false, error: "Session not active. Shein might have rejected these cookies." };
             }
         } catch (e) {
-            console.error("Cookie Login Error:", e.message);
+            // CATCH-ALL ROTATION
             if (await this.handleBlockIfNeeded(e, retryCount, MAX_RETRIES)) {
+                await new Promise(r => setTimeout(r, 4000));
                 return await this.loginWithCookies(cookiesData, useProxy, retryCount + 1);
             }
             throw e;
         } finally {
-            await this.closeBrowser();
+            // We usually want to keep the browser open for immediate tasks, 
+            // but for login commands we might close it to save resources.
+            // Check index.js usage - we should close only on final success/failure.
         }
     }
 
