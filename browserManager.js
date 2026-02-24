@@ -404,7 +404,7 @@ class BrowserManager {
 
         console.log("🌐 Fetching fresh proxies from Webshare API...");
         try {
-            const response = await fetch("https://proxy.webshare.io/api/v2/proxy/list/?page_size=100", {
+            const response = await fetch("https://proxy.webshare.io/api/v2/proxy/list/?page_size=100&mode=direct", {
                 headers: { "Authorization": `Token ${apiKey}` }
             });
 
