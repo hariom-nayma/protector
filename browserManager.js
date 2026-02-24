@@ -934,47 +934,58 @@ class BrowserManager {
         }
     }
 
-    async getCartItemCount() {
-        if (!this.page) return 0;
-        return await this.page.evaluate(() => {
-            // Updated selectors for Shein India
-            const selectors = [
-                '.j-bag-count', 
-                '.header-cart-count', 
-                '.iconfont-gouwudai .num', 
-                '.cart-count-icon', 
-                '.bag-count',
-                '.cart-num',
-                '.S-header-cart-count'
-            ];
-            for (const sel of selectors) {
-                const b = document.querySelector(sel);
-                if (b) {
-                    const num = parseInt(b.innerText || b.textContent);
-                    if (!isNaN(num)) return num;
+    async getCartItemCount(captureDebug = false) {
+        if (!this.page || this.page.isClosed()) return 0;
+        try {
+            const count = await this.page.evaluate(() => {
+                // Updated selectors for Shein India
+                const selectors = [
+                    '.j-bag-count', 
+                    '.header-cart-count', 
+                    '.iconfont-gouwudai .num', 
+                    '.cart-count-icon', 
+                    '.bag-count',
+                    '.cart-num',
+                    '.S-header-cart-count',
+                    '.cart-badge-num',
+                    '[class*="bag-count"]',
+                    '[class*="cart-count"]'
+                ];
+                for (const sel of selectors) {
+                    const b = document.querySelector(sel);
+                    if (b) {
+                        const num = parseInt(b.innerText || b.textContent);
+                        if (!isNaN(num)) return num;
+                    }
                 }
+
+                // Fallback: Check for aria-label or title on cart link
+                const cartLink = document.querySelector('a[href*="cart"], .header-right-bag, .cart-anchor');
+                if (cartLink) {
+                    const label = cartLink.getAttribute('aria-label') || cartLink.getAttribute('title') || "";
+                    const match = label.match(/\d+/);
+                    if (match) return parseInt(match[0]);
+                }
+
+                // Final Fallback: Search for "Bag (N)", "Cart (N)", "My Bag (N)" etc.
+                const bodyText = document.body.innerText;
+                const genericMatch = bodyText.match(/(?:Bag|Cart|My Bag)\s*\((\d+)[^)]*\)/i);
+                
+                if (genericMatch) return parseInt(genericMatch[1]);
+                return 0;
+            });
+
+            if (count === 0 && captureDebug) {
+                const debugPath = path.resolve(__dirname, `empty_cart_debug_${Date.now()}.png`);
+                await this.page.screenshot({ path: debugPath }).catch(() => {});
+                console.log(`[DEBUG] Cart detected as 0. Debug screenshot saved at: ${debugPath}`);
             }
 
-            // Fallback: Check for aria-label or title on cart link
-            const cartLink = document.querySelector('a[href*="cart"], .header-right-bag');
-            if (cartLink) {
-                const label = cartLink.getAttribute('aria-label') || cartLink.getAttribute('title') || "";
-                const match = label.match(/\d+/);
-                if (match) return parseInt(match[0]);
-            }
-
-            // Final Fallback: Search for "Bag (N)", "Cart (N)", "My Bag (N)" etc.
-            const bodyText = document.body.innerText;
-            // More robust match: Look for Bag/Cart, then any words/spaces, then (number)
-            const genericMatch = bodyText.match(/(?:Bag|Cart|My Bag)\s*\((\d+)[^)]*\)/i);
-            
-            if (genericMatch) {
-                console.log(`[DEBUG] Found cart count via generic text match: ${genericMatch[1]}`);
-                return parseInt(genericMatch[1]);
-            }
-
+            return count;
+        } catch (e) {
+            console.log("[DEBUG] getCartItemCount error (likely navigation):", e.message);
             return 0;
-        });
+        }
     }
 
     async checkCoupons(coupons, options = { screenshot: true, detailed: true }, retryCount = 0) {

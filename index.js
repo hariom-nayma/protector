@@ -109,6 +109,7 @@ const getHelpText = (userId) => {
 /protect <code>[COUPONS]</code> - Start protecting coupons
 /release <code>[COUPON]</code> - Stop checking a specific coupon
 /check <code>[COUPONS]</code> - One-time check of coupons
+/cart - View current cart status & screenshot
 /stop - Stop all protection and scanning tasks
 /scan - Start wishlist or stock scan (if enabled)`;
 
@@ -218,6 +219,34 @@ let protectionIntervalMinutes = 3; // Default 3 mins
 const userProtections = new Map(); // UserId -> Set<Coupon>
 const lastUserMessageIds = new Map(); // UserId -> MessageId
 let lastGlobalResults = new Map(); // Coupon -> Status Result object
+
+// --- Command: /cart ---
+bot.onText(/\/cart/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!checkAccess(msg)) return;
+
+    bot.sendMessage(chatId, "🛒 <b>Checking your cart...</b>", { parse_mode: 'HTML' });
+
+    try {
+        await browserManager.initBrowser();
+        if (!browserManager.page.url().includes('cart')) {
+            await browserManager.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'networkidle2', timeout: 30000 });
+        }
+        
+        const count = await browserManager.getCartItemCount();
+        const screenPath = path.resolve(__dirname, `cart_check_${Date.now()}.png`);
+        await browserManager.page.screenshot({ path: screenPath });
+
+        let status = `🛒 <b>Cart Status</b>\n\nItems Detected: <b>${count}</b>\nSession: ${await browserManager.page.evaluate(() => document.body.innerText.toLowerCase().includes('sign out') ? 'Logged In' : 'Guest')}`;
+        
+        await bot.sendPhoto(chatId, screenPath, { caption: status, parse_mode: 'HTML' });
+        
+        // Cleanup screenshot
+        if (fs.existsSync(screenPath)) fs.unlinkSync(screenPath);
+    } catch (e) {
+        bot.sendMessage(chatId, `❌ <b>Cart Check Error:</b> ${e.message}`, { parse_mode: 'HTML' });
+    }
+});
 
 // --- Command: /cart_url ---
 bot.onText(/\/cart_url/, (msg) => {
