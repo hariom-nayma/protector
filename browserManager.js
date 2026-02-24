@@ -409,7 +409,8 @@ class BrowserManager {
             });
 
             if (!response.ok) {
-                throw new Error(`Webshare API error: ${response.status} ${response.statusText}`);
+                const errorBody = await response.text();
+                throw new Error(`Webshare API error: ${response.status} ${response.statusText} - ${errorBody}`);
             }
 
             const data = await response.json();
