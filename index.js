@@ -229,10 +229,36 @@ bot.onText(/\/cart/, async (msg) => {
 
     try {
         await browserManager.initBrowser();
+        
+        // Helper for manual retry on blocks
+        const handleManualBlock = async (err = null) => {
+            if (await browserManager.handleBlockIfNeeded(err, 0, 1)) {
+                bot.sendMessage(chatId, "⚠️ <b>Block or Proxy failure detected.</b> Rotating session and retrying...", { parse_mode: 'HTML' });
+                return true;
+            }
+            return false;
+        };
+
+        // Initial check
+        await handleManualBlock();
+
         if (!browserManager.page.url().includes('cart')) {
-            await browserManager.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'networkidle2', timeout: 30000 });
+            try {
+                await browserManager.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded', timeout: 30000 });
+            } catch (e) {
+                if (await handleManualBlock(e)) {
+                    await browserManager.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                } else {
+                    throw e;
+                }
+            }
         }
         
+        // Final sanity check for block AFTER navigation
+        if (await browserManager.isBlocked()) {
+            throw new Error("Access Denied (WAF Blocked). Please /login again.");
+        }
+
         const count = await browserManager.getCartItemCount();
         const screenPath = path.resolve(__dirname, `cart_check_${Date.now()}.png`);
         await browserManager.page.screenshot({ path: screenPath });
@@ -241,7 +267,6 @@ bot.onText(/\/cart/, async (msg) => {
         
         await bot.sendPhoto(chatId, screenPath, { caption: status, parse_mode: 'HTML' });
         
-        // Cleanup screenshot
         if (fs.existsSync(screenPath)) fs.unlinkSync(screenPath);
     } catch (e) {
         bot.sendMessage(chatId, `❌ <b>Cart Check Error:</b> ${e.message}`, { parse_mode: 'HTML' });

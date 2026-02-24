@@ -251,6 +251,61 @@ class BrowserManager {
         }
     }
 
+    async isBlocked() {
+        if (!this.page || this.page.isClosed()) return false;
+        try {
+            const bodyText = await this.page.evaluate(() => document.body.innerText.substring(0, 1000).toLowerCase());
+            const blockSignals = [
+                "access denied", 
+                "site can’t be reached", 
+                "err_timed_out", 
+                "security check", 
+                "bot detection",
+                "blocked by cloudflare",
+                "request was blocked",
+                "err_tunnel_connection_failed",
+                "tunnel connection failed"
+            ];
+            return blockSignals.some(s => bodyText.includes(s));
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async handleBlockIfNeeded(error, retryCount, maxRetries = 5) {
+        let blockDetected = false;
+        
+        // 1. Check if error object indicates a proxy/network block
+        if (error) {
+            const msg = error.message.toLowerCase();
+            if (msg.includes("err_tunnel_connection_failed") || 
+                msg.includes("access denied") || 
+                msg.includes("timed out") ||
+                msg.includes("closed") ||
+                msg.includes("target closed")) {
+                blockDetected = true;
+            }
+        }
+
+        // 2. Check page content for visible block messages
+        if (!blockDetected) {
+            blockDetected = await this.isBlocked();
+        }
+
+        if (blockDetected) {
+            if (retryCount < maxRetries) {
+                console.log(`⚠️ Block or Proxy failure detected (Try ${retryCount + 1}). Rotatings session/proxy...`);
+                this.stickyProxy = null; 
+                await this.initBrowser(null, true); // Restart fresh
+                return true;
+            } else {
+                console.error("❌ Max retries reached after recurring blocks/failures.");
+                return false;
+            }
+        }
+        return false;
+    }
+
     async loginManual(useProxy = true) {
         // FORCE RESTART: Close any existing browser to ensure a fresh headful window
         await this.closeBrowser();
@@ -446,30 +501,25 @@ class BrowserManager {
 
         try {
             // 0. Preliminary Block Check (Navigation)
+            let navError = null;
             try {
                 // SESSION WARMUP: If first try or fresh session, warmup first
-                if (retryCount === 0 || skipUserData) {
+                if (retryCount === 0) {
                     await this.warmupSession();
                 }
 
                 console.log(`[DEBUG] Navigating to product: ${url}`);
-                const navResult = await this.page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 }).catch(async (err) => {
-                    console.log("[DEBUG] Page hang (networkidle2), falling back to domcontentloaded...");
-                    return await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-                });
+                await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
             } catch (e) {
-                console.log("[DEBUG] Navigation timeout/error, checking content...");
+                console.log("[DEBUG] Navigation error:", e.message);
+                navError = e;
+            }
+
+            if (await this.handleBlockIfNeeded(navError, retryCount, MAX_RETRIES)) {
+                return await this.addToCart(url, retryCount + 1);
             }
 
             await new Promise(r => setTimeout(r, 3000));
-            let currentUrl = this.page.url();
-            let bodyText = await this.page.evaluate(() => document.body.innerText.toLowerCase());
-
-            if ((bodyText.includes("access denied") || currentUrl.includes("chromewebdata")) && retryCount < MAX_RETRIES) {
-                console.log(`⚠️ Block detected on navigation to product. Retrying with fresh session/proxy...`);
-                await this.initBrowser(null, true);
-                return await this.addToCart(url, retryCount + 1);
-            }
 
             // 1. Pre-Extract GUID and CSRF from Node-side (Puppeteer) to bypass document access errors
             const nodeCookies = await this.page.cookies();
@@ -995,17 +1045,20 @@ class BrowserManager {
         const results = [];
 
         try {
-            // Check for initial block
-            const bodyTextLow = await this.page.evaluate(() => document.body.innerText.substring(0, 500).toLowerCase());
-            if ((bodyTextLow.includes("access denied") || bodyTextLow.includes("site can’t be reached") || bodyTextLow.includes("err_timed_out")) && retryCount < MAX_RETRIES) {
-                console.log(`⚠️ Block detected in checkCoupons. Retrying with fresh session/proxy (${retryCount + 1}/${MAX_RETRIES})...`);
-                this.stickyProxy = null; // Clear sticky proxy to allow rotation
-                await this.initBrowser(null, true); // Restarts with a fresh profile
+            // Check for initial block / proxy failure
+            if (await this.handleBlockIfNeeded(null, retryCount, MAX_RETRIES)) {
                 return await this.checkCoupons(coupons, options, retryCount + 1);
             }
 
             if (!this.page.url().includes('cart')) {
-                await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded' });
+                try {
+                    await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded', timeout: 45000 });
+                } catch (e) {
+                    if (await this.handleBlockIfNeeded(e, retryCount, MAX_RETRIES)) {
+                        return await this.checkCoupons(coupons, options, retryCount + 1);
+                    }
+                    throw e;
+                }
                 // Wait for initial tokens/cookies to settle
                 await new Promise(r => setTimeout(r, 4000));
             }
