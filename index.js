@@ -259,11 +259,26 @@ bot.onText(/\/cart/, async (msg) => {
             throw new Error("Access Denied (WAF Blocked). Please /login again.");
         }
 
-        const count = await browserManager.getCartItemCount();
+        let count = await browserManager.getCartItemCount();
+
+        // RECOVERY: If cart is empty, try refreshing session from latest cookies
+        if (count === 0) {
+            bot.sendMessage(chatId, "🛒 <b>Cart is empty!</b> Attempting to restore session from last cookies...", { parse_mode: 'HTML' });
+            const refreshed = await browserManager.refreshSessionFromLatest();
+            if (refreshed) {
+                await browserManager.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                await new Promise(r => setTimeout(r, 3000));
+                count = await browserManager.getCartItemCount();
+            }
+        }
+
         const screenPath = path.resolve(__dirname, `cart_check_${Date.now()}.png`);
         await browserManager.page.screenshot({ path: screenPath });
 
         let status = `🛒 <b>Cart Status</b>\n\nItems Detected: <b>${count}</b>\nSession: ${await browserManager.page.evaluate(() => document.body.innerText.toLowerCase().includes('sign out') ? 'Logged In' : 'Guest')}`;
+        if (count === 0) {
+            status += "\n\n⚠️ <b>Warning</b>: Cart is still empty. Please check your cookies or manually add an item.";
+        }
         
         await bot.sendPhoto(chatId, screenPath, { caption: status, parse_mode: 'HTML' });
         

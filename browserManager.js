@@ -20,6 +20,7 @@ if (process.platform === 'win32') {
 puppeteer.use(StealthPlugin());
 
 const USER_DATA_DIR = path.resolve(__dirname, 'chrome_profile');
+const LATEST_COOKIES_FILE = path.resolve(__dirname, 'latest_cookies.txt');
 
 class BrowserManager {
     constructor() {
@@ -376,7 +377,6 @@ class BrowserManager {
         }
         return cookies;
     }
-
     async loginWithCookies(cookiesData, useProxy = true, retryCount = 0) {
         const MAX_RETRIES = 5;
         let cookies;
@@ -465,6 +465,12 @@ class BrowserManager {
             if (lsCookie || isLoggedUI) {
                 console.log(`✅ Cookie session verified! (LS: ${!!lsCookie}, UI: ${isLoggedUI})`);
                 this.stickyProxy = useProxy ? this.currentProxy : null; 
+                
+                // SAVE SUCCESSFUL COOKIES AS LATEST (Only on first entry to avoid loop-saving)
+                if (retryCount === 0) {
+                    await this.saveLatestCookies(cookiesData);
+                }
+                
                 return { success: true };
             } else {
                 console.log("⚠️ Cookies applied but session not detected.");
@@ -480,9 +486,32 @@ class BrowserManager {
             }
             throw e;
         } finally {
-            // We usually want to keep the browser open for immediate tasks, 
-            // but for login commands we might close it to save resources.
-            // Check index.js usage - we should close only on final success/failure.
+            // Browser stays open
+        }
+    }
+
+    async saveLatestCookies(cookiesData) {
+        try {
+            fs.writeFileSync(LATEST_COOKIES_FILE, cookiesData, 'utf8');
+            console.log(`[DEBUG] Latest cookies saved to: ${LATEST_COOKIES_FILE}`);
+        } catch (e) {
+            console.error("Failed to save latest cookies:", e.message);
+        }
+    }
+
+    async refreshSessionFromLatest(useProxy = true) {
+        if (!fs.existsSync(LATEST_COOKIES_FILE)) {
+            console.log("[DEBUG] No latest_cookies.txt found. Cannot refresh session.");
+            return false;
+        }
+        console.log("[DEBUG] Refreshing session from latest_cookies.txt...");
+        try {
+            const cookiesData = fs.readFileSync(LATEST_COOKIES_FILE, 'utf8');
+            const result = await this.loginWithCookies(cookiesData, useProxy, 0);
+            return result.success;
+        } catch (e) {
+            console.error("Session refresh failed:", e.message);
+            return false;
         }
     }
 
@@ -953,58 +982,26 @@ class BrowserManager {
         }
     }
 
-    async addRandomSheinVerseItem() {
-        console.log("🛒 Cart is empty! Finding a Shein Verse item to add...");
-        try {
-            try {
-                await this.page.goto('https://www.sheinindia.in/c/sverse-5939-37961', { waitUntil: 'domcontentloaded', timeout: 60000 });
-            } catch (e) { }
-
-            await new Promise(r => setTimeout(r, 6000)); // Increased wait
-
-            // Scroll to trigger lazy load
-            await this.page.evaluate(async () => {
-                window.scrollBy(0, 500);
-            });
-            await new Promise(r => setTimeout(r, 2000));
-
-            const links = await this.getProductLinks();
-            console.log(`[DEBUG] Found ${links.length} potential items.`);
-
-            if (links.length === 0) {
-                await this.page.screenshot({ path: `debug_no_links_${Date.now()}.png` });
-                return false;
-            }
-
-            for (const link of links.slice(0, 5)) {
-                console.log(`[DEBUG] Checking: ${link}`);
-                const stock = await this.checkStockWithDebug(link);
-
-                if (stock.available) {
-                    const result = await this.addToCart(link);
-                    if (result.success) return true;
-                } else {
-                    console.log(`[DEBUG] Skipped ${link}. Reason: ${stock.reason}`);
-                }
-            }
-        } catch (e) {
-            console.error("Failed to add Shein Verse item:", e.message);
-        }
-        return false;
-    }
-
     async ensureCartHasItem() {
         try {
             let itemCount = await this.getCartItemCount();
 
             if (itemCount === 0) {
-                const added = await this.addRandomSheinVerseItem();
-                if (!added) return false;
+                console.log("🛒 Cart is empty! Attempting session refresh from latest cookies...");
+                
+                // SKIPPING AUTO-ADD AS REQUESTED
+                const refreshed = await this.refreshSessionFromLatest();
+                if (refreshed) {
+                    // Go back to cart and check again
+                    await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded', timeout: 45000 });
+                    await new Promise(r => setTimeout(r, 3000));
+                    itemCount = await this.getCartItemCount();
+                }
 
-                // Go back to cart
-                await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded' });
-                await new Promise(r => setTimeout(r, 3000));
-                itemCount = await this.getCartItemCount();
+                if (itemCount === 0) {
+                    console.log("⚠️ Cart still empty after cookie re-application.");
+                    return false;
+                }
             }
             return itemCount > 0;
         } catch (e) {
