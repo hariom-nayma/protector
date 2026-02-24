@@ -144,6 +144,27 @@ bot.onText(/\/help/, (msg) => {
     bot.sendMessage(chatId, getHelpText(userId), { parse_mode: 'HTML' });
 });
 
+// --- Command: /refresh_proxies (Admin only) ---
+bot.onText(/\/refresh_proxies/, async (msg) => {
+    if (!isAdmin(msg.from.id)) return;
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, "🔄 **Refreshing proxy list from Webshare API...**", { parse_mode: 'HTML' });
+
+    try {
+        // Reset cache timer to force a fresh fetch
+        browserManager.lastProxyRefresh = 0;
+        const list = await browserManager.fetchWebshareProxies();
+
+        if (list && list.length > 0) {
+            bot.sendMessage(chatId, `✅ **Success!** Loaded <b>${list.length}</b> proxies from Webshare.`, { parse_mode: 'HTML' });
+        } else {
+            bot.sendMessage(chatId, "⚠️ **No proxies found.** Ensure your <code>WEBSHARE_API_KEY</code> is correct.", { parse_mode: 'HTML' });
+        }
+    } catch (err) {
+        bot.sendMessage(chatId, `❌ **Error refreshing proxies:** ${err.message}`, { parse_mode: 'HTML' });
+    }
+});
+
 // --- Command: /check_ip (Admin only) ---
 bot.onText(/\/check_ip/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
@@ -229,7 +250,7 @@ bot.onText(/\/cart/, async (msg) => {
 
     try {
         await browserManager.initBrowser();
-        
+
         // Helper for manual retry on blocks
         const handleManualBlock = async (err = null) => {
             if (await browserManager.handleBlockIfNeeded(err, 0, 1)) {
@@ -253,7 +274,7 @@ bot.onText(/\/cart/, async (msg) => {
                 }
             }
         }
-        
+
         // Final sanity check for block AFTER navigation
         if (await browserManager.isBlocked()) {
             throw new Error("Access Denied (WAF Blocked). Please /login again.");
@@ -279,9 +300,9 @@ bot.onText(/\/cart/, async (msg) => {
         if (count === 0) {
             status += "\n\n⚠️ <b>Warning</b>: Cart is still empty. Please check your cookies or manually add an item.";
         }
-        
+
         await bot.sendPhoto(chatId, screenPath, { caption: status, parse_mode: 'HTML' });
-        
+
         if (fs.existsSync(screenPath)) fs.unlinkSync(screenPath);
     } catch (e) {
         bot.sendMessage(chatId, `❌ <b>Cart Check Error:</b> ${e.message}`, { parse_mode: 'HTML' });
@@ -781,7 +802,7 @@ bot.onText(/\/broadcast (.+)/s, async (msg, match) => {
 
     const broadcastMsg = match[1];
     const users = db.getAuthorizedUsers();
-    
+
     if (users.length === 0) {
         return bot.sendMessage(msg.chat.id, "⚠️ No authorized users to broadcast to.");
     }
@@ -796,7 +817,7 @@ bot.onText(/\/broadcast (.+)/s, async (msg, match) => {
             await bot.sendMessage(user.id, `📢 <b>MESSAGE FROM ADMIN</b> 📢\n\n${broadcastMsg}`, { parse_mode: 'HTML' });
             successCount++;
             // Small delay to prevent rate limiting
-            await new Promise(r => setTimeout(r, 60)); 
+            await new Promise(r => setTimeout(r, 60));
         } catch (e) {
             console.error(`Broadcast failed for ${user.id}:`, e.message);
             failCount++;

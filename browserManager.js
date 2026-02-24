@@ -30,6 +30,8 @@ class BrowserManager {
         this.currentProxy = null;
         this.initPromise = null;
         this.stickyProxy = null; // STICKY: Keep track of proxy used for login
+        this.proxyList = []; // Dynamic list from Webshare
+        this.lastProxyRefresh = 0;
     }
 
     async initBrowser(overrideHeadless = null, skipUserData = false, forceNoProxy = false) {
@@ -46,10 +48,20 @@ class BrowserManager {
 
                 if (!forceNoProxy && useProxyGlobal) {
                     let proxyUrl = process.env.PROXY_URL;
-                    const rawProxyList = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [];
-                    const proxyList = rawProxyList
-                        .map(p => p.trim().replace(/[>\]]$/, ''))
-                        .filter(p => p && p.length > 5);
+                    let proxyList = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [];
+
+                    // DYNAMIC FETCH: Use Webshare API if key is present
+                    if (process.env.WEBSHARE_API_KEY) {
+                        const dynamicList = await this.fetchWebshareProxies();
+                        if (dynamicList.length > 0) {
+                            proxyList = dynamicList;
+                            console.log(`[DEBUG] Using dynamic Webshare proxy list (${proxyList.length} items)`);
+                        }
+                    } else {
+                        proxyList = proxyList
+                            .map(p => p.trim().replace(/[>\]]$/, ''))
+                            .filter(p => p && p.length > 5);
+                    }
 
                     selectedProxy = proxyUrl;
                     if (this.stickyProxy) {
@@ -376,6 +388,48 @@ class BrowserManager {
             });
         }
         return cookies;
+    }
+
+    async fetchWebshareProxies() {
+        const apiKey = process.env.WEBSHARE_API_KEY;
+        if (!apiKey) {
+            console.log("[DEBUG] WEBSHARE_API_KEY not found. Skipping dynamic proxy fetch.");
+            return [];
+        }
+
+        // Cache for 30 minutes to avoid rate limits
+        if (this.proxyList.length > 0 && (Date.now() - this.lastProxyRefresh < 30 * 60 * 1000)) {
+            return this.proxyList;
+        }
+
+        console.log("🌐 Fetching fresh proxies from Webshare API...");
+        try {
+            const response = await fetch("https://proxy.webshare.io/api/v2/proxy/list/?page_size=100", {
+                headers: { "Authorization": `Token ${apiKey}` }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Webshare API error: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const results = data.results || [];
+            
+            // Format: username:password@ip:port
+            const formattedProxies = results.map(p => {
+                return `${p.username}:${p.password}@${p.proxy_address}:${p.port}`;
+            });
+
+            if (formattedProxies.length > 0) {
+                this.proxyList = formattedProxies;
+                this.lastProxyRefresh = Date.now();
+                console.log(`✅ Successfully fetched ${this.proxyList.length} proxies from Webshare.`);
+                return this.proxyList;
+            }
+        } catch (e) {
+            console.error("❌ Failed to fetch Webshare proxies:", e.message);
+        }
+        return this.proxyList; // Return cached if fetch fails
     }
     async loginWithCookies(cookiesData, useProxy = true, retryCount = 0) {
         const MAX_RETRIES = 5;
