@@ -367,7 +367,8 @@ class BrowserManager {
         return cookies;
     }
 
-    async loginWithCookies(cookiesData, useProxy = true) {
+    async loginWithCookies(cookiesData, useProxy = true, retryCount = 0) {
+        const MAX_RETRIES = 5;
         let cookies;
         try {
             // Try JSON first
@@ -385,6 +386,11 @@ class BrowserManager {
         await this.closeBrowser();
         await this.initBrowser(true, false, !useProxy);
 
+        // Check for initial block / proxy failure
+        if (await this.handleBlockIfNeeded(null, retryCount, MAX_RETRIES)) {
+            return await this.loginWithCookies(cookiesData, useProxy, retryCount + 1);
+        }
+
         console.log(`[DEBUG] Attempting to set ${cookies.length} cookies...`);
         try {
             // Apply cookies to current page
@@ -392,26 +398,33 @@ class BrowserManager {
                 try {
                     await this.page.setCookie(cookie);
                 } catch (err) {
-                    console.log(`[DEBUG] Failed to set cookie: ${cookie.name} - ${err.message}`);
+                    // Ignore minor cookie errors
                 }
             }
 
             // Navigate to home to confirm session
             console.log("Verifying cookie session...");
-            await this.page.goto('https://www.sheinindia.in/', { waitUntil: 'networkidle2', timeout: 60000 });
+            try {
+                await this.page.goto('https://www.sheinindia.in/', { waitUntil: 'domcontentloaded', timeout: 45000 });
+            } catch (e) {
+                if (await this.handleBlockIfNeeded(e, retryCount, MAX_RETRIES)) {
+                    return await this.loginWithCookies(cookiesData, useProxy, retryCount + 1);
+                }
+                throw e;
+            }
 
-            // 1. Popup Crusher: Try to dismiss common blocking elements
-            console.log("[DEBUG] Dismissing potential popups...");
+            // Final sanity check for block AFTER navigation
+            if (await this.handleBlockIfNeeded(null, retryCount, MAX_RETRIES)) {
+                return await this.loginWithCookies(cookiesData, useProxy, retryCount + 1);
+            }
+
+            // 1. Popup Crusher
+            await new Promise(r => setTimeout(r, 2000));
             await this.page.evaluate(() => {
                 const dismissSelectors = [
-                    '.common-pop__close-btn',
-                    '.sui-dialog__close',
-                    '.coupon-pop-close',
-                    '.fast-login-close',
-                    '.location-confirm-btn',
-                    '.j-close-pop',
-                    'div[class*="close"]',
-                    'i[class*="close"]'
+                    '.common-pop__close-btn', '.sui-dialog__close', '.coupon-pop-close',
+                    '.fast-login-close', '.location-confirm-btn', '.j-close-pop',
+                    'div[class*="close"]', 'i[class*="close"]'
                 ];
                 dismissSelectors.forEach(sel => {
                     const el = document.querySelector(sel);
@@ -419,17 +432,11 @@ class BrowserManager {
                 });
             });
 
-            // Extra wait for dynamic content
-            await new Promise(r => setTimeout(r, 6000));
+            await new Promise(r => setTimeout(r, 4000));
 
             // 2. Dual-Layer Validation
-            console.log("[DEBUG] Running session validation...");
-
-            // Check A: Cookie Vault Check (Most reliable)
             const activeCookies = await this.page.cookies();
             const lsCookie = activeCookies.find(c => c.name === 'LS' && c.value === 'LOGGED_IN');
-
-            // Check B: UI Text Check (Visual fallback)
             const { isLoggedUI, textSnippet } = await this.page.evaluate(() => {
                 const text = document.body.innerText.toLowerCase();
                 const found = text.includes('sign out') || text.includes('my orders') || text.includes('my profile') || text.includes('hi,');
@@ -438,19 +445,19 @@ class BrowserManager {
 
             if (lsCookie || isLoggedUI) {
                 console.log(`✅ Cookie session verified! (LS Cookie: ${!!lsCookie}, UI Text: ${isLoggedUI})`);
-                this.stickyProxy = useProxy ? this.currentProxy : null; // Save successful proxy
+                this.stickyProxy = useProxy ? this.currentProxy : null; 
                 return { success: true };
             } else {
                 console.log("⚠️ Cookies applied but session not detected.");
-                console.log("[DEBUG] Active Cookie Names:", activeCookies.map(c => c.name).join(', '));
-                console.log("[DEBUG] Page text snippet:", textSnippet);
                 const screenPath = `cookie_fail_${Date.now()}.png`;
                 await this.page.screenshot({ path: screenPath });
-                console.log(`[DEBUG] Screenshot saved to ${screenPath}`);
                 return { success: false, error: "Session not active. Shein might have rejected these cookies or the Proxy IP is blocked." };
             }
         } catch (e) {
             console.error("Cookie Login Error:", e.message);
+            if (await this.handleBlockIfNeeded(e, retryCount, MAX_RETRIES)) {
+                return await this.loginWithCookies(cookiesData, useProxy, retryCount + 1);
+            }
             throw e;
         } finally {
             await this.closeBrowser();
