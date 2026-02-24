@@ -41,200 +41,107 @@ class BrowserManager {
         this.initPromise = (async () => {
             try {
                 const isHeadless = overrideHeadless !== null ? overrideHeadless : (process.env.HEADLESS === 'true');
-
-                // 1. Proxy Selection
-                let selectedProxy = null;
                 const useProxyGlobal = process.env.USE_PROXY !== 'false';
 
-                if (!forceNoProxy && useProxyGlobal) {
-                    let proxyUrl = process.env.PROXY_URL;
-                    let proxyList = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [];
+                // 1. Proxy Fetching & Selection
+                let proxyUrl = process.env.PROXY_URL;
+                let proxyList = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [];
 
-                    // DYNAMIC FETCH: Use Webshare API if key is present
-                    if (process.env.WEBSHARE_API_KEY) {
-                        const dynamicList = await this.fetchWebshareProxies();
-                        if (dynamicList.length > 0) {
-                            proxyList = dynamicList;
-                            console.log(`[DEBUG] Using dynamic Webshare proxy list (${proxyList.length} items)`);
-                        }
-                    } else {
-                        proxyList = proxyList
-                            .map(p => p.trim().replace(/[>\]]$/, ''))
-                            .filter(p => p && p.length > 5);
-                    }
-
-                    selectedProxy = proxyUrl;
-                    if (this.stickyProxy) {
-                        selectedProxy = this.stickyProxy;
-                        console.log(`[DEBUG] Using sticky proxy: ${selectedProxy}`);
-                    } else if (proxyList.length > 0) {
-                        selectedProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
-                    }
-                } else if (!useProxyGlobal) {
-                    console.log("[DEBUG] Proxy usage is GLOBALLY DISABLED (USE_PROXY=false)");
+                if (process.env.WEBSHARE_API_KEY && useProxyGlobal && !forceNoProxy) {
+                    const dynamicList = await this.fetchWebshareProxies();
+                    if (dynamicList.length > 0) proxyList = dynamicList;
+                } else {
+                    proxyList = proxyList.map(p => p.trim()).filter(p => p.length > 5);
                 }
 
-                // 2. STABILITY: Check if we can reuse the current browser
-                if (this.browser && !skipUserData && this.currentProxy === selectedProxy && this.currentHeadless === isHeadless) {
+                let selectedProxy = this.stickyProxy || (proxyList.length > 0 ? proxyList[Math.floor(Math.random() * proxyList.length)] : proxyUrl);
+
+                // 2. Reuse check
+                if (this.browser && !skipUserData && !forceNoProxy && this.currentProxy === selectedProxy) {
                     try {
                         const pages = await this.browser.pages();
                         if (pages.length > 0) {
                             this.page = pages[pages.length - 1];
-                            console.log("[DEBUG] Reusing existing healthy browser session.");
                             this.isInitializing = false;
                             return;
-                        }
-                    } catch (e) {
-                        console.log("[DEBUG] Existing browser unhealthy, restarting...");
-                    }
-                }
-
-                // If we reach here, we need a new/restarted browser
-                if (this.browser) {
-                    await this.closeBrowser().catch(() => { });
-                }
-
-                this.currentProxy = selectedProxy;
-                this.currentHeadless = isHeadless;
-                const userDataDir = skipUserData ? undefined : USER_DATA_DIR;
-
-                let finalProxyServer = selectedProxy;
-                let proxyAuth = null;
-
-                if (selectedProxy && selectedProxy.includes('@')) {
-                    try {
-                        const urlString = selectedProxy.startsWith('http') ? selectedProxy : `http://${selectedProxy}`;
-                        const urlObj = new URL(urlString);
-                        finalProxyServer = urlObj.host;
-                        if (!urlObj.port && !finalProxyServer.includes(':')) {
-                            const hostPart = selectedProxy.split('@')[1] || selectedProxy;
-                            if (hostPart.includes(':')) finalProxyServer = hostPart;
-                        }
-                        if (urlObj.username && urlObj.password) {
-                            proxyAuth = { username: urlObj.username, password: urlObj.password };
                         }
                     } catch (e) { }
                 }
 
-                try {
-                    console.log(`Launching browser (Headless: ${isHeadless}${finalProxyServer ? `, Proxy: ${finalProxyServer}` : ''}${skipUserData ? ', Fresh Session' : ''})...`);
+                if (this.browser) await this.closeBrowser().catch(() => { });
 
-                    const launchArgs = [
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-accelerated-2d-canvas',
-                        '--no-first-run',
-                        '--no-zygote',
-                        '--disable-gpu',
-                        '--disable-features=IsolateOrigins,site-per-process',
-                        '--disable-blink-features=AutomationControlled',
-                        '--no-service-autorun',
-                        '--password-store=basic',
-                        '--use-gl=swiftshader',
-                        '--disable-infobars',
-                        '--hide-scrollbars'
-                    ];
+                // 3. Validation Loop
+                const MAX_INIT_RETRIES = 3;
+                let lastError = null;
 
-                    if (finalProxyServer) launchArgs.push(`--proxy-server=${finalProxyServer}`);
+                for (let attempt = 0; attempt < MAX_INIT_RETRIES; attempt++) {
+                    const currentProxy = selectedProxy;
+                    let finalProxyServer = null;
+                    let proxyAuth = null;
 
-                    this.browser = await puppeteer.launch({
-                        headless: isHeadless ? 'new' : false,
-                        userDataDir: userDataDir,
-                        ignoreHTTPSErrors: true,
-                        args: launchArgs,
-                        ignoreDefaultArgs: ['--enable-automation']
-                    });
-                    console.log('✅ Browser launched successfully!');
-                } catch (e) {
-                    this.isInitializing = false;
-                    console.error('❌ Failed to launch browser:', e.message);
-                    throw new Error(`Could not launch browser. Error: ${e.message}`);
-                }
-
-                const username = proxyAuth ? proxyAuth.username : process.env.PROXY_USERNAME;
-                const password = proxyAuth ? proxyAuth.password : process.env.PROXY_PASSWORD;
-
-                if (username && password) {
-                    console.log(`[DEBUG] Applying proxy authentication for ${username}`);
-                    this.browser.on('targetcreated', async (target) => {
+                    if (currentProxy && currentProxy.includes('@') && !forceNoProxy && useProxyGlobal) {
                         try {
-                            if (target.type() === 'page') {
-                                const p = await target.page();
-                                if (p && !p.isClosed()) {
-                                    await p.authenticate({ username, password }).catch(() => { });
-                                }
+                            const urlString = currentProxy.startsWith('http') ? currentProxy : `http://${currentProxy}`;
+                            const urlObj = new URL(urlString);
+                            finalProxyServer = urlObj.host;
+                            if (urlObj.username && urlObj.password) {
+                                proxyAuth = { username: urlObj.username, password: urlObj.password };
                             }
                         } catch (e) { }
-                    });
-                }
-
-                this.page = await this.browser.newPage();
-
-                // STABILITY: Block geolocation popups globally
-                const context = this.browser.defaultBrowserContext();
-                await context.overridePermissions('https://www.sheinindia.in', ['geolocation']);
-
-                this.isInitializing = false;
-                console.log("[DEBUG] Page opened successfully.");
-
-                // Exact mirror of user's successful log: Chrome 145 Android
-                await this.page.setUserAgent('Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36');
-
-                // Also authenticate the primary page immediately
-                if (username && password) {
-                    console.log("[DEBUG] Authenticating primary page...");
-                    await this.page.authenticate({ username, password }).catch((e) => {
-                        console.log("[DEBUG] Primary auth error (ignoring):", e.message);
-                    });
-                    console.log("[DEBUG] Primary page authenticated.");
-                }
-
-                // Apply advanced stealth headers
-                await this.setStealthHeaders();
-
-                // DEEP STEALTH: Mask navigator.webdriver and other detection signals
-                await this.page.evaluateOnNewDocument(() => {
-                    // Mask webdriver
-                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-                    // Emulate Chrome object
-                    window.chrome = { runtime: {}, loadTimes: function () { }, csi: function () { }, app: {} };
-
-                    // Emulate Languages and Plugins
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                    Object.defineProperty(navigator, 'plugins', {
-                        get: () => [
-                            { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-                            { name: 'Chrome PDF Edition', filename: 'pdf-edition', description: 'PDF Edition' },
-                            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
-                        ]
-                    });
-
-                    // Mask WebGL vendor (some sites use this)
-                    const getParameter = HTMLCanvasElement.prototype.getContext('webgl').getParameter;
-                    HTMLCanvasElement.prototype.getContext('webgl').getParameter = function (parameter) {
-                        if (parameter === 37445) return 'Intel Inc.';
-                        if (parameter === 37446) return 'Intel(R) Iris(TM) Graphics 6100';
-                        return getParameter.apply(this, arguments);
-                    };
-                });
-
-                // Workaround for "Requesting main frame too early" with stealth plugin
-                try {
-                    const pages = await this.browser.pages();
-                    if (pages.length > 1) {
-                        await pages[0].close();
                     }
-                } catch (e) { }
 
-                // Set Viewport
-                await this.page.setViewport({ width: 1366, height: 768 });
+                    try {
+                        console.log(`🚀 Launching browser (Attempt ${attempt + 1}/${MAX_INIT_RETRIES}, Proxy: ${finalProxyServer || 'None'})...`);
+                        
+                        this.browser = await puppeteer.launch({
+                            headless: isHeadless ? 'new' : false,
+                            userDataDir: skipUserData ? undefined : USER_DATA_DIR,
+                            args: [
+                                '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+                                finalProxyServer ? `--proxy-server=${finalProxyServer}` : ''
+                            ].filter(Boolean),
+                            ignoreHTTPSErrors: true
+                        });
 
-                // Wait a moment for the page to be fully ready
-                await new Promise(r => setTimeout(r, 1000));
+                        const username = proxyAuth ? proxyAuth.username : process.env.PROXY_USERNAME;
+                        const password = proxyAuth ? proxyAuth.password : process.env.PROXY_PASSWORD;
+
+                        this.page = await this.browser.newPage();
+                        
+                        // Apply Proxy Auth
+                        if (username && password) {
+                            await this.page.authenticate({ username, password }).catch(() => { });
+                            this.browser.on('targetcreated', async (t) => {
+                                if (t.type() === 'page') {
+                                    const p = await t.page();
+                                    if (p) await p.authenticate({ username, password }).catch(() => { });
+                                }
+                            });
+                        }
+
+                        // Stealth & Navigation
+                        await this.page.setUserAgent('Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36');
+                        await this.setStealthHeaders();
+
+                        console.log("[DEBUG] Verifying proxy connectivity...");
+                        await this.page.goto('https://www.sheinindia.in/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                        
+                        console.log('✅ Browser ready with working proxy!');
+                        this.currentProxy = currentProxy;
+                        this.isInitializing = false;
+                        return; // SUCCESS
+                    } catch (err) {
+                        console.log(`⚠️ Attempt ${attempt + 1} failed: ${err.message}`);
+                        lastError = err;
+                        await this.closeBrowser().catch(() => { });
+                        if (proxyList.length > 1) {
+                            selectedProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
+                        }
+                    }
+                }
 
                 this.isInitializing = false;
+                throw new Error(`Failed to initialize browser after ${MAX_INIT_RETRIES} attempts. Last error: ${lastError?.message}`);
             } catch (err) {
                 this.isInitializing = false;
                 throw err;
