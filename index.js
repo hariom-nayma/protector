@@ -240,6 +240,8 @@ let protectionIntervalMinutes = 3; // Default 3 mins
 const userProtections = new Map(); // UserId -> Set<Coupon>
 const lastUserMessageIds = new Map(); // UserId -> MessageId
 let lastGlobalResults = new Map(); // Coupon -> Status Result object
+let isProtecting = false;
+
 
 // --- Command: /cart ---
 bot.onText(/\/cart/, async (msg) => {
@@ -531,6 +533,12 @@ async function startProtection() {
 
 async function runProtectionCycle() {
     if (userProtections.size === 0) return;
+    
+    if (isProtecting) {
+        console.log("⚠️ Previous protection cycle still running. Skipping this interval to prevent overlap.");
+        return;
+    }
+    isProtecting = true;
 
     try {
         // Gather ALL unique coupons from ALL users
@@ -633,6 +641,8 @@ async function runProtectionCycle() {
 
     } catch (error) {
         console.error("Protection cycle error:", error);
+    } finally {
+        isProtecting = false;
     }
 }
 

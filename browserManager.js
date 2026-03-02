@@ -92,7 +92,7 @@ class BrowserManager {
 
                     try {
                         console.log(`🚀 Launching browser (Attempt ${attempt + 1}/${MAX_INIT_RETRIES}, Proxy: ${finalProxyServer || 'None'})...`);
-                        
+
                         this.browser = await puppeteer.launch({
                             headless: isHeadless ? 'new' : false,
                             userDataDir: skipUserData ? undefined : USER_DATA_DIR,
@@ -107,7 +107,7 @@ class BrowserManager {
                         const password = proxyAuth ? proxyAuth.password : process.env.PROXY_PASSWORD;
 
                         this.page = await this.browser.newPage();
-                        
+
                         // Apply Proxy Auth
                         if (username && password) {
                             await this.page.authenticate({ username, password }).catch(() => { });
@@ -125,7 +125,7 @@ class BrowserManager {
 
                         console.log("[DEBUG] Verifying proxy connectivity...");
                         await this.page.goto('https://www.sheinindia.in/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-                        
+
                         console.log('✅ Browser ready with working proxy!');
                         this.currentProxy = currentProxy;
                         this.isInitializing = false;
@@ -156,6 +156,10 @@ class BrowserManager {
     async closeBrowser() {
         if (this.browser) {
             try {
+                // Get PID before closing
+                const browserProcess = this.browser.process();
+                const pid = browserProcess ? browserProcess.pid : null;
+
                 // Try closing pages first safely
                 const pages = await this.browser.pages().catch(() => []);
                 for (const page of pages) {
@@ -165,6 +169,16 @@ class BrowserManager {
                 }
                 // Try to disconnect before closing to let OS handle cleanup if close() hangs
                 await this.browser.close().catch(() => { });
+                // Force kill if PID exists to prevent zombies
+                if (pid) {
+                    try {
+                        if (process.platform === 'win32') {
+                            require('child_process').exec(`taskkill /pid ${pid} /T /F`, () => { });
+                        } else {
+                            process.kill(pid, 'SIGKILL');
+                        }
+                    } catch (e) { }
+                }
             } catch (e) {
                 // Total silence for OS-level cleanup errors (like taskkill failure)
             } finally {
@@ -180,10 +194,10 @@ class BrowserManager {
         try {
             const bodyText = await this.page.evaluate(() => document.body.innerText.substring(0, 1000).toLowerCase());
             const blockSignals = [
-                "access denied", 
-                "site can’t be reached", 
-                "err_timed_out", 
-                "security check", 
+                "access denied",
+                "site can’t be reached",
+                "err_timed_out",
+                "security check",
                 "bot detection",
                 "blocked by cloudflare",
                 "request was blocked",
@@ -198,12 +212,12 @@ class BrowserManager {
 
     async handleBlockIfNeeded(error, retryCount, maxRetries = 5) {
         let blockDetected = false;
-        
+
         // 1. Check if error object indicates a proxy/network block
         if (error) {
             const msg = error.message.toLowerCase();
-            if (msg.includes("err_tunnel_connection_failed") || 
-                msg.includes("access denied") || 
+            if (msg.includes("err_tunnel_connection_failed") ||
+                msg.includes("access denied") ||
                 msg.includes("timed out") ||
                 msg.includes("closed") ||
                 msg.includes("target closed")) {
@@ -220,12 +234,12 @@ class BrowserManager {
             const useProxyGlobal = process.env.USE_PROXY !== 'false';
             if (!useProxyGlobal) {
                 console.log("⚠️ Block detected but proxy rotation is disabled (USE_PROXY=false). retrying with same IP might not work.");
-                return false; 
+                return false;
             }
 
             if (retryCount < maxRetries) {
                 console.log(`⚠️ Block or Proxy failure detected (Try ${retryCount + 1}). Rotatings session/proxy...`);
-                this.stickyProxy = null; 
+                this.stickyProxy = null;
                 await this.initBrowser(null, true); // Restart fresh
                 return true;
             } else {
@@ -322,7 +336,7 @@ class BrowserManager {
 
             const data = await response.json();
             const results = data.results || [];
-            
+
             // Format: username:password@ip:port
             const formattedProxies = results.map(p => {
                 return `${p.username}:${p.password}@${p.proxy_address}:${p.port}`;
@@ -342,7 +356,7 @@ class BrowserManager {
     async loginWithCookies(cookiesData, useProxy = true, retryCount = 0) {
         const MAX_RETRIES = 5;
         let cookies;
-        
+
         // Only parse cookies on first try to avoid redundant logs
         if (retryCount === 0) {
             try {
@@ -426,13 +440,13 @@ class BrowserManager {
 
             if (lsCookie || isLoggedUI) {
                 console.log(`✅ Cookie session verified! (LS: ${!!lsCookie}, UI: ${isLoggedUI})`);
-                this.stickyProxy = useProxy ? this.currentProxy : null; 
-                
+                this.stickyProxy = useProxy ? this.currentProxy : null;
+
                 // SAVE SUCCESSFUL COOKIES AS LATEST (Only on first entry to avoid loop-saving)
                 if (retryCount === 0) {
                     await this.saveLatestCookies(cookiesData);
                 }
-                
+
                 return { success: true };
             } else {
                 console.log("⚠️ Cookies applied but session not detected.");
@@ -566,152 +580,60 @@ class BrowserManager {
 
             // 1. Direct API Add to Cart Logic (Fast & Stealthy Fallback)
             console.log("[DEBUG] Attempting direct API cart-add fallback...");
-            const apiResult = await this.page.evaluate(async (passedGuid, passedCsrf, passedIsLogged) => {
-                try {
-                    return await (async (passedGuid, passedCsrf, passedIsLogged) => {
-                        // Try to get Cart GUID from minicart API
-                        let guid = passedGuid || "";
-                        if (!guid) {
-                            try {
-                                const miniCartResp = await fetch('/api/cart/minicart');
-                                const miniCartData = await miniCartResp.json();
-                                guid = miniCartData.guid || miniCartData.code;
-                            } catch (e) {
-                                console.log("Could not fetch minicart guid:", e.message);
-                            }
-                        }
-
-                        if (!guid) {
-                            try {
-                                // SAFE COOKIE ACCESS
-                                const cookieStr = (typeof document !== 'undefined' && document.cookie) || "";
-                                const cookies = cookieStr.split('; ');
-                                const cartCookie = cookies.find(row =>
-                                    row.startsWith('cart_id=') || row.startsWith('cart_guid=') ||
-                                    row.startsWith('device_id=') || row.startsWith('deviceId=') ||
-                                    row.startsWith('sessionId=') || row.startsWith('A=') || row.startsWith('identity=')
-                                );
-                                if (cartCookie) guid = cartCookie.match(/=([^;]+)/)[1];
-
-                                if (!guid) {
-                                    guid = localStorage.getItem('cart_id') || localStorage.getItem('cart_guid') ||
-                                        localStorage.getItem('deviceId') || localStorage.getItem('sessionId') ||
-                                        localStorage.getItem('A') || sessionStorage.getItem('cart_id') || localStorage.getItem('identity');
+            const apiResult = await Promise.race([
+                this.page.evaluate(async (passedGuid, passedCsrf, passedIsLogged) => {
+                    try {
+                        return await (async (passedGuid, passedCsrf, passedIsLogged) => {
+                            // Try to get Cart GUID from minicart API
+                            let guid = passedGuid || "";
+                            if (!guid) {
+                                try {
+                                    const controller = new AbortController();
+                                    const timeoutId = setTimeout(() => controller.abort(), 8000);
+                                    const miniCartResp = await fetch('/api/cart/minicart', { signal: controller.signal });
+                                    clearTimeout(timeoutId);
+                                    const miniCartData = await miniCartResp.json();
+                                    guid = miniCartData.guid || miniCartData.code;
+                                } catch (e) {
+                                    console.log("Could not fetch minicart guid:", e.message);
                                 }
-                            } catch (e) {
-                                console.log("Internal GUID/Cookie search error:", e.message);
                             }
-                        }
+                            // ... remaining guide/sku logic ...
+                            if (!sku || !guid) return { success: false, error: `Missing identifier. SKU: ${sku}, GUID: ${guid}` };
+                            // ... csrf extraction ...
+                            const addUrl = `/api/cart/${guid}/product/${sku}/add`;
+                            const headers = {
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-Tenant-Id': 'SHEIN',
+                                'Accept': 'application/json, text/plain, */*',
+                                'Referer': window.location.href,
+                                'Origin': window.location.origin
+                            };
+                            if (csrf) headers['X-CSRF-Token'] = csrf;
 
-                        // Check global state
-                        if (!guid) {
-                            try {
-                                const state = (window.gbProductIntroProp && window.gbProductIntroProp.productIntroData) || (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.productIntroData);
-                                if (state && (state.cartGuid || state.guid)) guid = state.cartGuid || state.guid;
-                            } catch (e) { }
-                        }
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 12000);
+                            const response = await fetch(addUrl, {
+                                method: 'POST',
+                                headers: headers,
+                                body: JSON.stringify({ quantity: 1 }),
+                                signal: controller.signal
+                            });
+                            clearTimeout(timeoutId);
 
-                        // Log available cookie names for debugging (client side)
-                        if (!guid) {
-                            try {
-                                const names = document.cookie.split(';').map(c => c.split('=')[0].trim());
-                                console.log("Available cookies (Page Context):", names.join(', '));
-                            } catch (e) { console.log("Cookie log error:", e.message); }
-                        }
-
-                        let sku = "";
-
-                        // Wait for product data to be ready (up to 3 seconds)
-                        const waitData = async () => {
-                            for (let i = 0; i < 30; i++) {
-                                const state = (window.gbProductIntroProp && window.gbProductIntroProp.productIntroData) || (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.productIntroData);
-                                if (state) return state;
-                                await new Promise(r => setTimeout(r, 100));
-                            }
-                            return null;
-                        };
-                        const productData = await waitData();
-
-                        // IMPROVED SKU EXTRACTION
-                        // 1. Check for selected size radio
-                        const activeSize = document.querySelector('.product-intro__size-radio_active, .product-intro__size-radio_selected, .size-item_active, .size-radio_active');
-                        if (activeSize) sku = activeSize.getAttribute('data-sku') || activeSize.getAttribute('data-id');
-
-                        // 2. Check for first available size radio if none active
-                        if (!sku) {
-                            const sizeRadio = document.querySelector('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled), .size-item:not(.size-item_disabled), .size-radio:not(.size-radio_disabled)');
-                            sku = sizeRadio ? (sizeRadio.getAttribute('data-sku') || sizeRadio.getAttribute('data-id')) : null;
-                        }
-
-                        // 3. Fallback to global state or HTML match
-                        if (!sku) {
-                            const state = productData;
-                            if (state && state.skuList && state.skuList.length > 0) {
-                                const entry = state.skuList.find(s => s.stock > 0 || (s.inventory && s.inventory > 0)) || state.skuList[0];
-                                sku = entry.skuId || entry.sku;
-                            } else if (state && state.mainSku) {
-                                sku = state.mainSku;
-                            }
-                        }
-
-                        // 4. URL Parsing fallback
-                        if (!sku) {
-                            const urlMatch = window.location.href.match(/\/p\/(\d+)/);
-                            if (urlMatch) sku = urlMatch[1];
-                        }
-
-                        if (!sku || !guid) return { success: false, error: `Missing identifier. SKU: ${sku}, GUID: ${guid}` };
-
-                        // CSRF Token Extraction
-                        let csrf = passedCsrf || "";
-                        if (!csrf) {
-                            try {
-                                const state = productData;
-                                csrf = document.querySelector('meta[name="csrf-token"]')?.content ||
-                                    window._csrf ||
-                                    (state && state.csrfToken) ||
-                                    document.cookie.match(/csrfToken=([^;]+)/)?.[1] ||
-                                    document.querySelector('input[name="_csrf"]')?.value || "";
-                            } catch (e) { }
-                        }
-
-                        const addUrl = `/api/cart/${guid}/product/${sku}/add`;
-                        console.log(`Add URL: ${addUrl}`);
-
-                        const headers = {
-                            'Content-Type': 'application/json',
-                            'X-Requested-With': 'XMLHttpRequest',
-                            'X-Tenant-Id': 'SHEIN',
-                            'Accept': 'application/json, text/plain, */*',
-                            'Referer': window.location.href,
-                            'Origin': window.location.origin
-                        };
-                        if (csrf) headers['X-CSRF-Token'] = csrf;
-
-                        const response = await fetch(addUrl, {
-                            method: 'POST',
-                            headers: headers,
-                            body: JSON.stringify({ quantity: 1 })
-                        });
-
-                        const data = await response.json().catch(() => ({ error: "Non-JSON response" }));
-                        if (!response.ok) {
-                            console.log(`API Error Status: ${response.status}, Body: ${JSON.stringify(data)}`);
-                        }
-                        return {
-                            success: response.ok && (data.statusCode === 'success' || data.code === '0' || data.msg === 'success'),
-                            data,
-                            sku,
-                            guid,
-                            isLogged: passedIsLogged,
-                            status: response.status
-                        };
+                            const data = await response.json().catch(() => ({ error: "Non-JSON response" }));
+                            return {
+                                success: response.ok && (data.statusCode === 'success' || data.code === '0' || data.msg === 'success'),
+                                data, sku, guid, isLogged: passedIsLogged, status: response.status
+                            };
+                        })(passedGuid, passedCsrf, passedIsLogged);
+                    } catch (err) {
+                        return { error: err.message };
                     }
-                    )(passedGuid, passedCsrf, passedIsLogged);
-                } catch (err) {
-                    return { success: false, error: err.message };
-                }
-            }, nodeGuid, nodeCsrf, isLogged);
+                }, nodeGuid, nodeCsrf, isLogged),
+                new Promise(resolve => setTimeout(() => resolve({ error: 'Evaluation Timeout' }), 25000))
+            ]);
 
             // Extra Step: Try to get GUID from Puppeteer cookies if null and retry API call
             if (!apiResult.success && !apiResult.guid) {
@@ -950,7 +872,7 @@ class BrowserManager {
 
             if (itemCount === 0) {
                 console.log("🛒 Cart is empty! Attempting session refresh from latest cookies...");
-                
+
                 // SKIPPING AUTO-ADD AS REQUESTED
                 const refreshed = await this.refreshSessionFromLatest();
                 if (refreshed) {
@@ -978,10 +900,10 @@ class BrowserManager {
             const count = await this.page.evaluate(() => {
                 // Updated selectors for Shein India
                 const selectors = [
-                    '.j-bag-count', 
-                    '.header-cart-count', 
-                    '.iconfont-gouwudai .num', 
-                    '.cart-count-icon', 
+                    '.j-bag-count',
+                    '.header-cart-count',
+                    '.iconfont-gouwudai .num',
+                    '.cart-count-icon',
                     '.bag-count',
                     '.cart-num',
                     '.S-header-cart-count',
@@ -1008,14 +930,14 @@ class BrowserManager {
                 // Final Fallback: Search for "Bag (N)", "Cart (N)", "My Bag (N)" etc.
                 const bodyText = document.body.innerText;
                 const genericMatch = bodyText.match(/(?:Bag|Cart|My Bag)\s*\((\d+)[^)]*\)/i);
-                
+
                 if (genericMatch) return parseInt(genericMatch[1]);
                 return 0;
             });
 
             if (count === 0 && captureDebug) {
                 const debugPath = path.resolve(__dirname, `empty_cart_debug_${Date.now()}.png`);
-                await this.page.screenshot({ path: debugPath }).catch(() => {});
+                await this.page.screenshot({ path: debugPath }).catch(() => { });
                 console.log(`[DEBUG] Cart detected as 0. Debug screenshot saved at: ${debugPath}`);
             }
 
@@ -1064,28 +986,35 @@ class BrowserManager {
 
                 // Call the internal API directly from the browser context
                 // This inherits all cookies and session headers
-                const apiResult = await this.page.evaluate(async (code) => {
-                    try {
-                        const response = await fetch('/api/cart/apply-voucher', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Requested-With': 'XMLHttpRequest',
-                                'X-Tenant-Id': 'SHEIN'
-                                // Browser adds Cookie, Origin, Referer automatically
-                            },
-                            body: JSON.stringify({
-                                voucherId: code,
-                                device: { client_type: 'web' }
-                            })
-                        });
+                const apiResult = await Promise.race([
+                    this.page.evaluate(async (code) => {
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s API timeout
+                            const response = await fetch('/api/cart/apply-voucher', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    'X-Tenant-Id': 'SHEIN'
+                                    // Browser adds Cookie, Origin, Referer automatically
+                                },
+                                body: JSON.stringify({
+                                    voucherId: code,
+                                    device: { client_type: 'web' }
+                                }),
+                                signal: controller.signal
+                            });
+                            clearTimeout(timeoutId);
 
-                        const data = await response.json();
-                        return { success: response.ok, data, status: response.status };
-                    } catch (err) {
-                        return { error: err.message };
-                    }
-                }, coupon);
+                            const data = await response.json();
+                            return { success: response.ok, data, status: response.status };
+                        } catch (err) {
+                            return { error: err.message };
+                        }
+                    }, coupon),
+                    new Promise(resolve => setTimeout(() => resolve({ error: 'Evaluation Timeout (Browser Hung)' }), 20000))
+                ]);
 
                 if (options.detailed) console.log(`API Response for ${coupon}:`, JSON.stringify(apiResult));
 
@@ -1149,69 +1078,38 @@ class BrowserManager {
             await this.page.goto(link, { waitUntil: 'networkidle2', timeout: 30000 });
             await new Promise(r => setTimeout(r, 5000)); // Increased Render Wait for stability
 
-            return await this.page.evaluate(async () => {
-                const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            return await Promise.race([
+                this.page.evaluate(async () => {
+                    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                    const bodyText = document.body.innerText.substring(0, 1000);
+                    const textLow = bodyText.toLowerCase();
 
-                const bodyText = document.body.innerText.substring(0, 1000);
-                const textLow = bodyText.toLowerCase();
+                    if (textLow.includes("site can’t be reached") || textLow.includes("err_timed_out") || textLow.includes("access denied")) {
+                        return { available: false, reason: 'Page Error/Block detected' };
+                    }
+                    if (textLow.includes('sold out') || textLow.includes('restock') || textLow.includes('out of stock')) {
+                        return { available: false, reason: 'Sold Out' };
+                    }
 
-                // 0. Error Page Check
-                if (textLow.includes("site can’t be reached") || textLow.includes("err_timed_out") || textLow.includes("access denied")) {
-                    return { available: false, reason: 'Page Error/Block detected in content (Access Denied/Timeout)' };
-                }
+                    const sizeItems = Array.from(document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)'));
+                    if (sizeItems.length > 0) {
+                        sizeItems[0].click();
+                        await sleep(1000);
+                    }
 
-                // 1. Basic Out of Stock Check
-                if (textLow.includes('sold out') || textLow.includes('restock') || textLow.includes('out of stock')) {
-                    return { available: false, reason: 'Sold Out' };
-                }
+                    const selectors = ['button', '.product-intro__add-btn', '.j-add-to-bag', 'div[aria-label*="Add to"]', '.add-to-bag'];
+                    const btns = Array.from(document.querySelectorAll(selectors.join(',')));
+                    const addToBagBtn = btns.find(b => {
+                        const t = (b.innerText || b.getAttribute('aria-label') || "").toUpperCase();
+                        const style = window.getComputedStyle(b);
+                        return style.display !== 'none' && (t.includes('ADD TO BAG') || t.includes('ADD TO CART'));
+                    });
 
-                // 2. Size Check - Attempt to find available sizes
-                const sizeItems = Array.from(document.querySelectorAll('.product-intro__size-choose .product-intro__size-radio:not(.product-intro__size-radio_disabled)'));
-                if (sizeItems.length > 0) {
-                    // Try clicking the first size to see if it enables the button
-                    sizeItems[0].click();
-                    const inner = sizeItems[0].querySelector('span');
-                    if (inner) inner.click();
-
-                    // Wait for UI update (button enablement)
-                    await sleep(1000);
-                }
-
-                // 3. Add to Bag Button Check
-                const selectors = [
-                    'button',
-                    '.product-intro__add-btn',
-                    '.j-add-to-bag',
-                    'div[aria-label*="Add to"]',
-                    'button[aria-label*="Add to"]',
-                    '.add-to-bag',
-                    '.goods-add-chart',
-                    'div[role="button"]'
-                ];
-                const btns = Array.from(document.querySelectorAll(selectors.join(',')));
-
-                const addToBagBtn = btns.find(b => {
-                    const t = (b.innerText || b.getAttribute('aria-label') || "").toUpperCase();
-                    // Check visibility
-                    const style = window.getComputedStyle(b);
-                    if (style.display === 'none' || style.visibility === 'hidden') return false;
-
-                    return t.includes('ADD TO BAG') || t.includes('ADD TO CART') || t.includes('ADD TO SHEET');
-                });
-
-                if (!addToBagBtn || addToBagBtn.disabled) {
-                    // FAILURE DEBUGGING: Collect texts of all button-like elements
-                    const debugTexts = btns.slice(0, 5).map(b => b.innerText || b.getAttribute('aria-label') || 'NO_TEXT').join(' | ');
-                    const pageTitle = document.title;
-                    return { available: false, reason: `Add to Bag disabled/not found. Title: [${pageTitle}]. Visible Buttons: [${debugTexts}]`, needsScreenshot: true };
-                }
-
-                // Get title and price
-                const title = document.querySelector('.product-intro__head-name')?.innerText || 'Product';
-                const price = document.querySelector('.product-intro__head-mainprice .common-price')?.innerText || 'Unknown';
-
-                return { available: true, title, price, sizes: sizeItems.map(s => s.innerText.trim()) };
-            });
+                    if (!addToBagBtn || addToBagBtn.disabled) return { available: false, reason: 'Add to Bag disabled', needsScreenshot: true };
+                    return { available: true };
+                }),
+                new Promise(resolve => setTimeout(() => resolve({ available: false, reason: 'Evaluation Timeout' }), 15000))
+            ]);
         } catch (err) {
             console.error(`Error checking stock for ${link}:`, err.message);
             return { available: false, reason: `Page Error: ${err.message}` };
