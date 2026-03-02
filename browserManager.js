@@ -2,6 +2,8 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
 const path = require('path');
+const cp = require('child_process');
+
 
 // STABILITY: Ensure taskkill is in PATH for Windows (silences Puppeteer errors)
 if (process.platform === 'win32') {
@@ -161,47 +163,35 @@ class BrowserManager {
 
     async closeBrowser() {
         if (!this.browser && !this.lastPid) return;
-
-        console.log(`[DEBUG] Lifecycle: Closing browser (PID: ${this.lastPid})...`);
+        const pid = this.lastPid;
+        console.log(`[DEBUG] Lifecycle: Terminating browser (PID: ${pid})...`);
 
         try {
-            // Race the graceful shutdown against a hard timeout
-            await Promise.race([
-                (async () => {
-                    if (this.browser) {
-                        const pages = await this.browser.pages().catch(() => []);
-                        for (const page of pages) {
-                            if (page && !page.isClosed()) {
-                                await page.close().catch(() => { });
-                            }
-                        }
-                        await this.browser.close().catch(() => { });
-                    }
-                })(),
-                new Promise(resolve => setTimeout(resolve, 15000)) // 15s hard limit for graceful close
-            ]);
+            if (this.browser) {
+                // DON'T AWAIT pages() if we are stuck, it's a known deadlock point
+                // Just try to close gracefully in background
+                this.browser.close().catch(() => { });
+            }
 
-            // Always attempt hard kill if we have a PID, regardless of browser object state
-            if (this.lastPid) {
-                try {
-                    if (process.platform === 'win32') {
-                        // Use taskkill to ensure the process tree is gone
-                        require('child_process').exec(`taskkill /pid ${this.lastPid} /T /F`, () => { });
-                    } else {
-                        process.kill(this.lastPid, 'SIGKILL');
-                    }
-                } catch (e) { }
+            // Always attempt hard kill for reliability on Windows/PM2
+            if (pid) {
+                if (process.platform === 'win32') {
+                    cp.exec(`taskkill /pid ${pid} /T /F`, () => { });
+                } else {
+                    try { process.kill(pid, 'SIGKILL'); } catch (e) { }
+                }
             }
         } catch (e) {
-            console.log(`[DEBUG] Lifecycle: Error during closeBrowser: ${e.message}`);
+            console.log(`[DEBUG] Lifecycle: CloseBrowser Error: ${e.message}`);
         } finally {
             this.browser = null;
             this.page = null;
             this.lastPid = null;
             this.isInitializing = false;
-            console.log("[DEBUG] Lifecycle: Browser references cleared.");
+            console.log("[DEBUG] Lifecycle: References cleared.");
         }
     }
+
 
 
     async isBlocked() {
@@ -1084,17 +1074,20 @@ class BrowserManager {
                 // Small delay to be polite
                 await new Promise(r => setTimeout(r, 1000));
             }
-            console.log("[DEBUG] Lifecycle: Finished batch processing, entering finally...");
+            console.log("[DEBUG] Lifecycle: Finished batch processing.");
         } catch (e) {
             console.error(e);
+            // On ERROR, close the browser to refresh state for next cycle
+            await this.closeBrowser();
         } finally {
-            if (options.closeBrowser !== false) {
-                console.log("[DEBUG] Lifecycle: Starting browser close procedure from checkCoupons...");
+            if (options.closeBrowser === true) {
+                console.log("[DEBUG] Lifecycle: Explicit Close Requested.");
                 await this.closeBrowser();
             }
         }
         return results;
     }
+
 
     async checkStock(link) {
         try {

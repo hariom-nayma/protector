@@ -550,8 +550,9 @@ async function runProtectionCycle() {
         if (allCoupons.size === 0) return;
 
         const couponsToCheck = Array.from(allCoupons);
-        // Use API based check (headless logic) - efficient batch check
-        const results = await browserManager.checkCoupons(couponsToCheck, { screenshot: false, detailed: true });
+        // USE STAY-ALIVE: Don't close browser every cycle to save RAM/CPU and prevent hangs
+        const results = await browserManager.checkCoupons(couponsToCheck, { screenshot: false, detailed: true, closeBrowser: false });
+
 
         const now = new Date();
         const timeString = now.toLocaleTimeString('en-IN', {
