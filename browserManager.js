@@ -32,7 +32,9 @@ class BrowserManager {
         this.stickyProxy = null; // STICKY: Keep track of proxy used for login
         this.proxyList = []; // Dynamic list from Webshare
         this.lastProxyRefresh = 0;
+        this.lastPid = null; // Track PID for hard kill
     }
+
 
     async initBrowser(overrideHeadless = null, skipUserData = false, forceNoProxy = false) {
         if (this.isInitializing && this.initPromise) return this.initPromise;
@@ -103,6 +105,10 @@ class BrowserManager {
                             ignoreHTTPSErrors: true
                         });
 
+                        const browserProcess = this.browser.process();
+                        this.lastPid = browserProcess ? browserProcess.pid : null;
+
+
                         const username = proxyAuth ? proxyAuth.username : process.env.PROXY_USERNAME;
                         const password = proxyAuth ? proxyAuth.password : process.env.PROXY_PASSWORD;
 
@@ -154,40 +160,49 @@ class BrowserManager {
     }
 
     async closeBrowser() {
-        if (this.browser) {
-            try {
-                // Get PID before closing
-                const browserProcess = this.browser.process();
-                const pid = browserProcess ? browserProcess.pid : null;
+        if (!this.browser && !this.lastPid) return;
 
-                // Try closing pages first safely
-                const pages = await this.browser.pages().catch(() => []);
-                for (const page of pages) {
-                    if (page && !page.isClosed()) {
-                        await page.close().catch(() => { });
-                    }
-                }
-                // Try to disconnect before closing to let OS handle cleanup if close() hangs
-                await this.browser.close().catch(() => { });
-                // Force kill if PID exists to prevent zombies
-                if (pid) {
-                    try {
-                        if (process.platform === 'win32') {
-                            require('child_process').exec(`taskkill /pid ${pid} /T /F`, () => { });
-                        } else {
-                            process.kill(pid, 'SIGKILL');
+        console.log(`[DEBUG] Lifecycle: Closing browser (PID: ${this.lastPid})...`);
+
+        try {
+            // Race the graceful shutdown against a hard timeout
+            await Promise.race([
+                (async () => {
+                    if (this.browser) {
+                        const pages = await this.browser.pages().catch(() => []);
+                        for (const page of pages) {
+                            if (page && !page.isClosed()) {
+                                await page.close().catch(() => { });
+                            }
                         }
-                    } catch (e) { }
-                }
-            } catch (e) {
-                // Total silence for OS-level cleanup errors (like taskkill failure)
-            } finally {
-                this.browser = null;
-                this.page = null;
-                this.isInitializing = false; // RESET STATE ON CLOSE
+                        await this.browser.close().catch(() => { });
+                    }
+                })(),
+                new Promise(resolve => setTimeout(resolve, 15000)) // 15s hard limit for graceful close
+            ]);
+
+            // Always attempt hard kill if we have a PID, regardless of browser object state
+            if (this.lastPid) {
+                try {
+                    if (process.platform === 'win32') {
+                        // Use taskkill to ensure the process tree is gone
+                        require('child_process').exec(`taskkill /pid ${this.lastPid} /T /F`, () => { });
+                    } else {
+                        process.kill(this.lastPid, 'SIGKILL');
+                    }
+                } catch (e) { }
             }
+        } catch (e) {
+            console.log(`[DEBUG] Lifecycle: Error during closeBrowser: ${e.message}`);
+        } finally {
+            this.browser = null;
+            this.page = null;
+            this.lastPid = null;
+            this.isInitializing = false;
+            console.log("[DEBUG] Lifecycle: Browser references cleared.");
         }
     }
+
 
     async isBlocked() {
         if (!this.page || this.page.isClosed()) return false;
@@ -1016,7 +1031,11 @@ class BrowserManager {
                     new Promise(resolve => setTimeout(() => resolve({ error: 'Evaluation Timeout (Browser Hung)' }), 20000))
                 ]);
 
-                if (options.detailed) console.log(`API Response for ${coupon}:`, JSON.stringify(apiResult));
+                if (options.detailed) {
+                    const debugResp = JSON.stringify(apiResult);
+                    const truncated = debugResp.length > 500 ? debugResp.substring(0, 500) + "... [TRUNCATED]" : debugResp;
+                    console.log(`API Response for ${coupon}:`, truncated);
+                }
 
                 let status = 'UNKNOWN';
 
@@ -1030,6 +1049,7 @@ class BrowserManager {
                     // Success Case: Usually returns cart info or standard response with no error message
                     // Based on user log: status 400 means failure. So 200 likely means success.
                     if (apiResult.success && !data.errorMessage) {
+
                         // Check if it actually gave a discount
                         if (data.voucherAmount && data.voucherAmount.value > 0) {
                             status = 'APPLICABLE';
@@ -1064,15 +1084,18 @@ class BrowserManager {
                 // Small delay to be polite
                 await new Promise(r => setTimeout(r, 1000));
             }
+            console.log("[DEBUG] Lifecycle: Finished batch processing, entering finally...");
         } catch (e) {
             console.error(e);
         } finally {
             if (options.closeBrowser !== false) {
+                console.log("[DEBUG] Lifecycle: Starting browser close procedure from checkCoupons...");
                 await this.closeBrowser();
             }
         }
         return results;
     }
+
     async checkStock(link) {
         try {
             await this.page.goto(link, { waitUntil: 'networkidle2', timeout: 30000 });
