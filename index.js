@@ -242,7 +242,8 @@ const lastUserMessageIds = new Map(); // UserId -> MessageId
 let lastGlobalResults = new Map(); // Coupon -> Status Result object
 let isProtecting = false;
 let isRotationEnabled = false; // NEW: SEQUENTIAL ROTATION MODE
-let rotationStopRequested = false; 
+let rotationStopRequested = false;
+let rotationIndex = 0; // NEW: Persistent index for rotation
 let lastCycleStartTime = 0; // WATCHDOG: Last time a cycle started
 
 
@@ -519,7 +520,7 @@ async function startProtection() {
     }
 
     if (protectionInterval) return; // Already running
-    
+
     // Immediate First Run
     await runProtectionCycle();
 
@@ -542,7 +543,7 @@ bot.onText(/\/rotation/, async (msg) => {
     if (!checkAccess(msg)) return;
 
     isRotationEnabled = !isRotationEnabled;
-    
+
     if (isRotationEnabled) {
         if (protectionInterval) {
             clearInterval(protectionInterval);
@@ -573,34 +574,44 @@ async function runRotationLoop() {
 
         if (allCoupons.size === 0) {
             isRotationEnabled = false; // No coupons to protect, disable rotation
-            bot.sendMessage(process.env.ADMIN_ID, "ℹ️ Rotation mode disabled: No coupons to protect.", { parse_mode: 'HTML' }).catch(() => {});
+            bot.sendMessage(process.env.ADMIN_ID, "ℹ️ Rotation mode disabled: No coupons to protect.", { parse_mode: 'HTML' }).catch(() => { });
             return;
         }
 
         const couponsToRotate = Array.from(allCoupons);
-        console.log(`[DEBUG] Rotating through ${couponsToRotate.length} unique coupons.`);
+        console.log(`[DEBUG] Rotating through ${couponsToRotate.length} unique coupons. starting from index ${rotationIndex % couponsToRotate.length}`);
 
-        for (const couponCode of couponsToRotate) {
-            if (rotationStopRequested) {
+        // Ensure rotationIndex is within bounds if size changed
+        if (rotationIndex >= couponsToRotate.length) rotationIndex = 0;
+
+        for (let i = 0; i < couponsToRotate.length; i++) {
+            if (rotationStopRequested || !isRotationEnabled) {
                 console.log("Rotation stop requested. Exiting loop.");
                 break;
             }
-            console.log(`[DEBUG] Checking coupon: ${couponCode}`);
+
+            // Get current coupon based on persistent index
+            const couponCode = couponsToRotate[rotationIndex % couponsToRotate.length];
+
+            console.log(`[DEBUG] Checking coupon [${rotationIndex % couponsToRotate.length + 1}/${couponsToRotate.length}]: ${couponCode}`);
             const results = await browserManager.checkCoupons([couponCode], { screenshot: false, detailed: true, closeBrowser: false });
             await broadcastResults(results);
+
+            rotationIndex++; // Advance to next for either next iteration or next loop restart
+
             await new Promise(resolve => setTimeout(resolve, 5000)); // 5-second delay
         }
 
     } catch (error) {
         console.error("Rotation cycle error:", error);
         if (process.env.ADMIN_ID && error.message.includes('initialize')) {
-            bot.sendMessage(process.env.ADMIN_ID, `🚨 <b>Critical Bot Failure</b>\nAll proxy attempts failed. The bot is unable to start browser cycles.\n\nError: <code>${error.message}</code>`, { parse_mode: 'HTML' }).catch(() => {});
+            bot.sendMessage(process.env.ADMIN_ID, `🚨 <b>Critical Bot Failure</b>\nAll proxy attempts failed. The bot is unable to start browser cycles.\n\nError: <code>${error.message}</code>`, { parse_mode: 'HTML' }).catch(() => { });
         }
     } finally {
         isProtecting = false;
         if (isRotationEnabled && !rotationStopRequested) {
-            // If rotation is still enabled and not stopped, restart the loop after a short delay
-            setTimeout(runRotationLoop, 10000); // Wait 10 seconds before starting next full rotation
+            // Keep looping indefinitely
+            setTimeout(runRotationLoop, 5000);
         }
     }
 }
@@ -646,7 +657,7 @@ async function runProtectionCycle() {
     } catch (error) {
         console.error("Protection cycle error:", error);
         if (process.env.ADMIN_ID && error.message.includes('initialize')) {
-            bot.sendMessage(process.env.ADMIN_ID, `🚨 <b>Critical Bot Failure</b>\nAll proxy attempts failed. The bot is unable to start browser cycles.\n\nError: <code>${error.message}</code>`, { parse_mode: 'HTML' }).catch(() => {});
+            bot.sendMessage(process.env.ADMIN_ID, `🚨 <b>Critical Bot Failure</b>\nAll proxy attempts failed. The bot is unable to start browser cycles.\n\nError: <code>${error.message}</code>`, { parse_mode: 'HTML' }).catch(() => { });
         }
     } finally {
         isProtecting = false;
@@ -664,8 +675,8 @@ async function broadcastResults(results) {
 
     // Update global cache with new results
     results.forEach(r => {
-        lastGlobalResults.set(r.code, { 
-            status: r.status, 
+        lastGlobalResults.set(r.code, {
+            status: r.status,
             time: timeString,
             message: r.message
         });
@@ -747,7 +758,7 @@ async function broadcastResults(results) {
                 const sentMsg = await bot.sendMessage(userId, report, {
                     parse_mode: 'HTML',
                     reply_markup: keyboard
-                }).catch(() => {});
+                }).catch(() => { });
                 if (sentMsg) lastUserMessageIds.set(userId, sentMsg.message_id);
             }
         }

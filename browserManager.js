@@ -63,15 +63,18 @@ class BrowserManager {
                 }
 
                 // 2. Reuse check
-                if (this.browser && !skipUserData && !forceNoProxy && this.currentProxy === selectedProxy) {
+                if (this.browser && !skipUserData && !forceNoProxy && (this.currentProxy === selectedProxy || (!this.currentProxy && !selectedProxy))) {
                     try {
                         const pages = await this.browser.pages();
                         if (pages.length > 0) {
+                            console.log("[DEBUG] Reusing existing browser session.");
                             this.page = pages[pages.length - 1];
                             this.isInitializing = false;
                             return;
                         }
-                    } catch (e) { }
+                    } catch (e) {
+                        console.log("[DEBUG] Browser reuse probe failed, starting fresh.");
+                    }
                 }
 
                 if (this.browser) await this.closeBrowser().catch(() => { });
