@@ -657,6 +657,9 @@ async function runProtectionCycle() {
 
     } catch (error) {
         console.error("Protection cycle error:", error);
+        if (process.env.ADMIN_ID && error.message.includes('initialize')) {
+            bot.sendMessage(process.env.ADMIN_ID, `🚨 <b>Critical Bot Failure</b>\nAll proxy attempts failed. The bot is unable to start browser cycles.\n\nError: <code>${error.message}</code>`, { parse_mode: 'HTML' }).catch(() => {});
+        }
     } finally {
         isProtecting = false;
     }

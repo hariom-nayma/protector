@@ -75,7 +75,7 @@ class BrowserManager {
                 if (this.browser) await this.closeBrowser().catch(() => { });
 
                 // 3. Validation Loop
-                const MAX_INIT_RETRIES = 3;
+                const MAX_INIT_RETRIES = 5;
                 let lastError = null;
 
                 for (let attempt = 0; attempt < MAX_INIT_RETRIES; attempt++) {
@@ -156,14 +156,25 @@ class BrowserManager {
                         console.log(`⚠️ Attempt ${attempt + 1} failed: ${err.message}`);
                         lastError = err;
                         await this.closeBrowser().catch(() => { });
+                        
+                        // PROXY ROTATION: Remove the failing proxy from list to avoid repetition
+                        if (proxyList.length > 1) {
+                            const index = proxyList.indexOf(selectedProxy);
+                            if (index > -1) {
+                                console.log(`[DEBUG] Removing failing proxy from current cycle: ${selectedProxy.split('@')[1] || selectedProxy}`);
+                                proxyList.splice(index, 1);
+                            }
+                        }
 
-                        if (err.message.includes('timeout')) {
-                            console.log("[DEBUG] Cooling down for 5s after timeout...");
+                        if (err.message.includes('timeout') || err.message.includes('TUNNEL') || err.message.includes('connection')) {
+                            console.log("[DEBUG] Cooling down for 5s after connection error...");
                             await new Promise(r => setTimeout(r, 5000));
                         }
 
-                        if (proxyList.length > 1) {
+                        if (proxyList.length > 0) {
                             selectedProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
+                        } else {
+                            selectedProxy = proxyUrl;
                         }
                     }
                 }
@@ -263,12 +274,12 @@ class BrowserManager {
             }
 
             if (retryCount < maxRetries) {
-                console.log(`⚠️ Block or Proxy failure detected (Try ${retryCount + 1}). Rotatings session/proxy...`);
+                console.log(`⚠️ Block or Proxy failure detected (Try ${retryCount + 1}). Rotating session/proxy...`);
                 this.stickyProxy = null;
                 await this.initBrowser(null, true); // Restart fresh
                 return true;
             } else {
-                console.error("❌ Max retries reached after recurring blocks/failures.");
+                console.error("❌ Max retries reached after recurring blocks/failures. Your IP or Proxies might be flagged.");
                 return false;
             }
         }
@@ -908,8 +919,13 @@ class BrowserManager {
                 }
 
                 if (itemCount === 0) {
-                    console.log("⚠️ Cart still empty after cookie re-application.");
-                    return false;
+                    console.log("⚠️ Cart still empty after cookie re-application. Attempting auto-add fallback...");
+                    // Try to add a cheap item (SVerse Category usually has them)
+                    const fallbackUrl = 'https://www.sheinindia.in/p-s-21926615.html';
+                    const addResult = await this.addToCart(fallbackUrl, 0);
+                    if (addResult.success) {
+                        itemCount = addResult.count;
+                    }
                 }
             }
             return itemCount > 0;
@@ -1003,7 +1019,11 @@ class BrowserManager {
             if (!cartHasItem) {
                 console.error("❌ Cart is empty and failed to add item. Aborting coupon check.");
                 if (options.closeBrowser !== false) await this.closeBrowser();
-                return coupons.map(c => ({ code: c, status: 'ERROR_CART_EMPTY' }));
+                return coupons.map(c => ({ 
+                    code: c, 
+                    status: 'ERROR_CART_EMPTY', 
+                    message: "Cart is empty. Please run /login or add an item manually." 
+                }));
             }
 
             for (const coupon of coupons) {
