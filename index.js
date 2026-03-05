@@ -241,6 +241,8 @@ const userProtections = new Map(); // UserId -> Set<Coupon>
 const lastUserMessageIds = new Map(); // UserId -> MessageId
 let lastGlobalResults = new Map(); // Coupon -> Status Result object
 let isProtecting = false;
+let isRotationEnabled = false; // NEW: SEQUENTIAL ROTATION MODE
+let rotationStopRequested = false; 
 let lastCycleStartTime = 0; // WATCHDOG: Last time a cycle started
 
 
@@ -511,26 +513,98 @@ bot.onText(/\/protect(?: (.+))?/, async (msg, match) => {
 });
 
 async function startProtection() {
-    if (protectionInterval) return; // Already running
+    if (isRotationEnabled) {
+        if (!isProtecting) runRotationLoop();
+        return;
+    }
 
+    if (protectionInterval) return; // Already running
+    
     // Immediate First Run
-    // Only run immediate if we are starting fresh/restarting, 
-    // but be careful not to spam if just changing interval? 
-    // Actually standard behavior is fine.
-    // However, if we just restarted interval due to time change, maybe we skip immediate run?
-    // Let's keep it simple: always run immediately to confirm status.
     await runProtectionCycle();
 
     // Interval Run
     protectionInterval = setInterval(async () => {
-        if (userProtections.size === 0) {
-            clearInterval(protectionInterval);
-            protectionInterval = null;
+        if (userProtections.size === 0 || isRotationEnabled) {
+            if (protectionInterval) {
+                clearInterval(protectionInterval);
+                protectionInterval = null;
+            }
             return;
         }
         await runProtectionCycle();
     }, protectionIntervalMinutes * 60 * 1000);
 }
+
+// --- Command: /rotation ---
+bot.onText(/\/rotation/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!checkAccess(msg)) return;
+
+    isRotationEnabled = !isRotationEnabled;
+    
+    if (isRotationEnabled) {
+        if (protectionInterval) {
+            clearInterval(protectionInterval);
+            protectionInterval = null;
+        }
+        rotationStopRequested = false;
+        bot.sendMessage(chatId, "🔄 <b>Rotation Mode ENABLED</b>\nCoupons will be checked one by one with a 5s delay. Interval mode disabled.", { parse_mode: 'HTML' });
+        runRotationLoop();
+    } else {
+        rotationStopRequested = true;
+        bot.sendMessage(chatId, "⏹ <b>Rotation Mode DISABLED</b>\nReturning to standard interval mode...", { parse_mode: 'HTML' });
+        startProtection();
+    }
+});
+
+async function runRotationLoop() {
+    if (isProtecting || rotationStopRequested) return;
+
+    isProtecting = true;
+    console.log(`🔄 [${new Date().toLocaleTimeString()}] Starting rotation cycle...`);
+
+    try {
+        // Gather ALL unique coupons from ALL users
+        const allCoupons = new Set();
+        userProtections.forEach((coupons) => {
+            coupons.forEach(c => allCoupons.add(c));
+        });
+
+        if (allCoupons.size === 0) {
+            isRotationEnabled = false; // No coupons to protect, disable rotation
+            bot.sendMessage(process.env.ADMIN_ID, "ℹ️ Rotation mode disabled: No coupons to protect.", { parse_mode: 'HTML' }).catch(() => {});
+            return;
+        }
+
+        const couponsToRotate = Array.from(allCoupons);
+        console.log(`[DEBUG] Rotating through ${couponsToRotate.length} unique coupons.`);
+
+        for (const couponCode of couponsToRotate) {
+            if (rotationStopRequested) {
+                console.log("Rotation stop requested. Exiting loop.");
+                break;
+            }
+            console.log(`[DEBUG] Checking coupon: ${couponCode}`);
+            const results = await browserManager.checkCoupons([couponCode], { screenshot: false, detailed: true, closeBrowser: false });
+            await broadcastResults(results);
+            await new Promise(resolve => setTimeout(resolve, 5000)); // 5-second delay
+        }
+
+    } catch (error) {
+        console.error("Rotation cycle error:", error);
+        if (process.env.ADMIN_ID && error.message.includes('initialize')) {
+            bot.sendMessage(process.env.ADMIN_ID, `🚨 <b>Critical Bot Failure</b>\nAll proxy attempts failed. The bot is unable to start browser cycles.\n\nError: <code>${error.message}</code>`, { parse_mode: 'HTML' }).catch(() => {});
+        }
+    } finally {
+        isProtecting = false;
+        if (isRotationEnabled && !rotationStopRequested) {
+            // If rotation is still enabled and not stopped, restart the loop after a short delay
+            setTimeout(runRotationLoop, 10000); // Wait 10 seconds before starting next full rotation
+        }
+    }
+}
+
 
 async function runProtectionCycle() {
     if (userProtections.size === 0) return;
@@ -567,93 +641,7 @@ async function runProtectionCycle() {
         // USE STAY-ALIVE: Don't close browser every cycle to save RAM/CPU and prevent hangs
         const results = await browserManager.checkCoupons(couponsToCheck, { screenshot: false, detailed: true, closeBrowser: false });
         console.log(`[DEBUG] Cycle check completed. Distributing results...`);
-
-
-        const now = new Date();
-        const timeString = now.toLocaleTimeString('en-IN', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            timeZone: 'Asia/Kolkata'
-        });
-
-        // Map results for quick lookup
-        const resultsMap = new Map();
-        results.forEach(r => {
-            resultsMap.set(r.code, r);
-            lastGlobalResults.set(r.code, { status: r.status, time: timeString });
-        });
-
-        // Distribute results to each User
-        for (const [userId, userCoupons] of userProtections) {
-            if (userCoupons.size === 0) continue;
-
-            let report = `🛡️ <b>Protection Active</b> 🛡️\n<i>Last Updated: ${timeString}</i>\n\n`;
-            const userButtons = [];
-
-            userCoupons.forEach(couponCode => {
-                const r = resultsMap.get(couponCode);
-                if (r) {
-                    let statusIcon = '⚠️';
-                    let statusText = r.status;
-
-                    if (r.status === 'APPLICABLE') {
-                        statusIcon = '✅';
-                        statusText = 'APPLICABLE (Protected)';
-                    } else if (r.status === 'ERROR_CART_EMPTY') {
-                        statusIcon = '⚠️';
-                        statusText = 'CART EMPTY - Protection Paused';
-                    } else if (r.status === 'INVALID' || r.status.includes('exist')) {
-                        statusIcon = '❌';
-                    } else if (r.status === 'REDEEMED' || r.status.includes('limit')) {
-                        statusIcon = '🚫';
-                        statusText = 'REDEEMED / USED';
-                    }
-                    report += `${statusIcon} <code>${couponCode}</code>: <b>${statusText}</b>\n`;
-                }
-
-                userButtons.push({
-                    text: `Release ${couponCode}`,
-                    callback_data: `release_${couponCode}` // We'll need user context in callback or handle globally
-                });
-            });
-
-            // Chunk buttons
-            const rows = [];
-            for (let i = 0; i < userButtons.length; i += 2) {
-                rows.push(userButtons.slice(i, i + 2));
-            }
-            rows.push([{ text: '⛔ Stop My Protection', callback_data: 'stop_my_protection' }]);
-
-            const keyboard = { inline_keyboard: rows };
-            const lastMsgId = lastUserMessageIds.get(userId);
-
-            // Attempt to edit existing message
-            if (lastMsgId) {
-                try {
-                    await bot.editMessageText(report, {
-                        chat_id: userId, // Assuming userId is chatId for private chats
-                        message_id: lastMsgId,
-                        parse_mode: 'HTML',
-                        reply_markup: keyboard
-                    });
-                    continue; // Next user
-                } catch (err) {
-                    // Fail silently, send new
-                }
-            }
-
-            // Send new message
-            try {
-                const sentMsg = await bot.sendMessage(userId, report, {
-                    parse_mode: 'HTML',
-                    reply_markup: keyboard
-                });
-                lastUserMessageIds.set(userId, sentMsg.message_id);
-            } catch (e) {
-                console.error(`Failed to send report to ${userId}:`, e.message);
-            }
-        }
+        await broadcastResults(results);
 
     } catch (error) {
         console.error("Protection cycle error:", error);
@@ -662,6 +650,107 @@ async function runProtectionCycle() {
         }
     } finally {
         isProtecting = false;
+    }
+}
+
+async function broadcastResults(results) {
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZone: 'Asia/Kolkata'
+    });
+
+    // Update global cache with new results
+    results.forEach(r => {
+        lastGlobalResults.set(r.code, { 
+            status: r.status, 
+            time: timeString,
+            message: r.message
+        });
+    });
+
+    // Distribute results to each User
+    for (const [userId, userCoupons] of userProtections) {
+        if (userCoupons.size === 0) continue;
+
+        let report = `🛡️ <b>Protection Active</b> 🛡️\n<i>Last Updated: ${timeString}</i>\n`;
+        if (isRotationEnabled) report += `<i>Mode: 🔄 Sequential Rotation (5s)</i>\n`;
+        report += `\n`;
+
+        const userButtons = [];
+
+        userCoupons.forEach(couponCode => {
+            const cached = lastGlobalResults.get(couponCode);
+            let statusIcon = '⏳';
+            let statusText = 'Pending Check...';
+
+            if (cached) {
+                statusIcon = '⚠️';
+                statusText = cached.status;
+
+                if (cached.status === 'APPLICABLE') {
+                    statusIcon = '✅';
+                    statusText = 'APPLICABLE (Protected)';
+                } else if (cached.status === 'ERROR_CART_EMPTY') {
+                    statusIcon = '⚠️';
+                    statusText = 'CART EMPTY - Paused';
+                } else if (cached.status === 'INVALID' || cached.status.includes('exist')) {
+                    statusIcon = '❌';
+                } else if (cached.status === 'REDEEMED' || cached.status.includes('limit')) {
+                    statusIcon = '🚫';
+                    statusText = 'REDEEMED / USED';
+                }
+            }
+            report += `${statusIcon} <code>${couponCode}</code>: <b>${statusText}</b>\n`;
+
+            userButtons.push({
+                text: `Release ${couponCode}`,
+                callback_data: `release_${couponCode}`
+            });
+        });
+
+        // Chunk buttons
+        const rows = [];
+        for (let i = 0; i < userButtons.length; i += 2) {
+            rows.push(userButtons.slice(i, i + 2));
+        }
+        rows.push([{ text: '⛔ Stop My Protection', callback_data: 'stop_my_protection' }]);
+
+        const keyboard = { inline_keyboard: rows };
+        const lastMsgId = lastUserMessageIds.get(userId);
+
+        try {
+            if (lastMsgId) {
+                // Only edit if status has changed significantly or every N sequential cycles
+                // For simplicity, let's edit always but catch "message is not modified" errors
+                await bot.editMessageText(report, {
+                    chat_id: userId,
+                    message_id: lastMsgId,
+                    parse_mode: 'HTML',
+                    reply_markup: keyboard
+                }).catch(e => {
+                    if (!e.message.includes('not modified')) throw e;
+                });
+            } else {
+                const sentMsg = await bot.sendMessage(userId, report, {
+                    parse_mode: 'HTML',
+                    reply_markup: keyboard
+                });
+                lastUserMessageIds.set(userId, sentMsg.message_id);
+            }
+        } catch (e) {
+            console.error(`Failed to update report for ${userId}:`, e.message);
+            // If edit failed because message was deleted, send a new one
+            if (e.message.includes('not found') || e.message.includes('deleted')) {
+                const sentMsg = await bot.sendMessage(userId, report, {
+                    parse_mode: 'HTML',
+                    reply_markup: keyboard
+                }).catch(() => {});
+                if (sentMsg) lastUserMessageIds.set(userId, sentMsg.message_id);
+            }
+        }
     }
 }
 
