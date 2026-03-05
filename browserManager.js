@@ -14,7 +14,7 @@ if (process.platform === 'win32') {
     ];
     sysPaths.forEach(p => {
         if (!process.env.PATH.includes(p)) {
-            process.env.PATH = process.env.PATH + ';' + p;
+            process.env.PATH = `${p}${path.delimiter}${process.env.PATH}`;
         }
     });
 }
@@ -97,51 +97,71 @@ class BrowserManager {
                     try {
                         console.log(`🚀 Launching browser (Attempt ${attempt + 1}/${MAX_INIT_RETRIES}, Proxy: ${finalProxyServer || 'None'})...`);
 
-                        this.browser = await puppeteer.launch({
-                            headless: isHeadless ? 'new' : false,
-                            userDataDir: skipUserData ? undefined : USER_DATA_DIR,
-                            args: [
-                                '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-                                finalProxyServer ? `--proxy-server=${finalProxyServer}` : ''
-                            ].filter(Boolean),
-                            ignoreHTTPSErrors: true
-                        });
-
-                        const browserProcess = this.browser.process();
-                        this.lastPid = browserProcess ? browserProcess.pid : null;
-
-
-                        const username = proxyAuth ? proxyAuth.username : process.env.PROXY_USERNAME;
-                        const password = proxyAuth ? proxyAuth.password : process.env.PROXY_PASSWORD;
-
-                        this.page = await this.browser.newPage();
-
-                        // Apply Proxy Auth
-                        if (username && password) {
-                            await this.page.authenticate({ username, password }).catch(() => { });
-                            this.browser.on('targetcreated', async (t) => {
-                                if (t.type() === 'page') {
-                                    const p = await t.page();
-                                    if (p) await p.authenticate({ username, password }).catch(() => { });
-                                }
+                        // STABILITY: Add a hard timeout to the entire launch & verification process
+                        const launchPromise = (async () => {
+                            this.browser = await puppeteer.launch({
+                                headless: isHeadless ? 'new' : false,
+                                userDataDir: skipUserData ? undefined : USER_DATA_DIR,
+                                args: [
+                                    '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+                                    '--disable-gpu',
+                                    finalProxyServer ? `--proxy-server=${finalProxyServer}` : ''
+                                ].filter(Boolean),
+                                ignoreHTTPSErrors: true
                             });
-                        }
 
-                        // Stealth & Navigation
-                        await this.page.setUserAgent('Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36');
-                        await this.setStealthHeaders();
+                            const browserProcess = this.browser.process();
+                            this.lastPid = browserProcess ? browserProcess.pid : null;
+                            console.log(`[DEBUG] Browser launched (PID: ${this.lastPid})`);
 
-                        console.log("[DEBUG] Verifying proxy connectivity...");
-                        await this.page.goto('https://www.sheinindia.in/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                            const username = proxyAuth ? proxyAuth.username : process.env.PROXY_USERNAME;
+                            const password = proxyAuth ? proxyAuth.password : process.env.PROXY_PASSWORD;
 
-                        console.log('✅ Browser ready with working proxy!');
-                        this.currentProxy = currentProxy;
+                            this.page = await this.browser.newPage();
+                            console.log(`[DEBUG] New page created`);
+                            await new Promise(r => setTimeout(r, 2000)); // Stability delay
+
+                            // Apply Proxy Auth
+                            if (username && password) {
+                                await this.page.authenticate({ username, password }).catch(() => { });
+                                this.browser.on('targetcreated', async (t) => {
+                                    if (t.type() === 'page') {
+                                        const p = await t.page();
+                                        if (p) await p.authenticate({ username, password }).catch(() => { });
+                                    }
+                                });
+                            }
+
+                            // Stealth & Navigation
+                            await this.page.setUserAgent('Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36');
+                            await this.setStealthHeaders();
+
+                            console.log("[DEBUG] Verifying proxy connectivity (60s timeout)...");
+                            // Increased timeout from 30s to 60s for slow proxies
+                            await this.page.goto('https://www.sheinindia.in/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+                            console.log('✅ Browser ready with working proxy!');
+                            this.currentProxy = currentProxy;
+                            return true;
+                        })();
+
+                        const timeoutPromise = new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Browser initialization timed out after 120s')), 120000)
+                        );
+
+                        await Promise.race([launchPromise, timeoutPromise]);
                         this.isInitializing = false;
                         return; // SUCCESS
                     } catch (err) {
                         console.log(`⚠️ Attempt ${attempt + 1} failed: ${err.message}`);
                         lastError = err;
                         await this.closeBrowser().catch(() => { });
+
+                        if (err.message.includes('timeout')) {
+                            console.log("[DEBUG] Cooling down for 5s after timeout...");
+                            await new Promise(r => setTimeout(r, 5000));
+                        }
+
                         if (proxyList.length > 1) {
                             selectedProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
                         }

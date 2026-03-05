@@ -11,7 +11,7 @@ if (process.platform === 'win32') {
     ];
     sysPaths.forEach(p => {
         if (!process.env.PATH.includes(p)) {
-            process.env.PATH = process.env.PATH + ';' + p;
+            process.env.PATH = `${p}${path.delimiter}${process.env.PATH}`;
         }
     });
 }
@@ -241,6 +241,7 @@ const userProtections = new Map(); // UserId -> Set<Coupon>
 const lastUserMessageIds = new Map(); // UserId -> MessageId
 let lastGlobalResults = new Map(); // Coupon -> Status Result object
 let isProtecting = false;
+let lastCycleStartTime = 0; // WATCHDOG: Last time a cycle started
 
 
 // --- Command: /cart ---
@@ -533,12 +534,23 @@ async function startProtection() {
 
 async function runProtectionCycle() {
     if (userProtections.size === 0) return;
-    
+
     if (isProtecting) {
-        console.log("⚠️ Previous protection cycle still running. Skipping this interval to prevent overlap.");
-        return;
+        const runningTime = Date.now() - lastCycleStartTime;
+        // Watchdog: If cycle has been running for more than 15 minutes, force reset
+        if (runningTime > 15 * 60 * 1000) {
+            console.log(`🚨 WATCHDOG: Protection cycle has been stuck for ${Math.round(runningTime / 60000)} mins. Force resetting...`);
+            isProtecting = false;
+            await browserManager.closeBrowser().catch(() => { });
+        } else {
+            console.log(`⚠️ Previous protection cycle still running (${Math.round(runningTime / 1000)}s). Skipping this interval to prevent overlap.`);
+            return;
+        }
     }
+
     isProtecting = true;
+    lastCycleStartTime = Date.now();
+    console.log(`🔄 [${new Date().toLocaleTimeString()}] Starting protection cycle for ${userProtections.size} users...`);
 
     try {
         // Gather ALL unique coupons from ALL users
@@ -550,8 +562,11 @@ async function runProtectionCycle() {
         if (allCoupons.size === 0) return;
 
         const couponsToCheck = Array.from(allCoupons);
+        console.log(`[DEBUG] Checking ${couponsToCheck.length} unique coupons: ${couponsToCheck.join(', ')}`);
+
         // USE STAY-ALIVE: Don't close browser every cycle to save RAM/CPU and prevent hangs
         const results = await browserManager.checkCoupons(couponsToCheck, { screenshot: false, detailed: true, closeBrowser: false });
+        console.log(`[DEBUG] Cycle check completed. Distributing results...`);
 
 
         const now = new Date();
