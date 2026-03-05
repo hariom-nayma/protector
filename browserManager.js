@@ -48,17 +48,19 @@ class BrowserManager {
                 const useProxyGlobal = process.env.USE_PROXY !== 'false';
 
                 // 1. Proxy Fetching & Selection
-                let proxyUrl = process.env.PROXY_URL;
-                let proxyList = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [];
+                let selectedProxy = null;
+                if (useProxyGlobal && !forceNoProxy) {
+                    let proxyUrl = process.env.PROXY_URL;
+                    let proxyList = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [];
 
-                if (process.env.WEBSHARE_API_KEY && useProxyGlobal && !forceNoProxy) {
-                    const dynamicList = await this.fetchWebshareProxies();
-                    if (dynamicList.length > 0) proxyList = dynamicList;
-                } else {
-                    proxyList = proxyList.map(p => p.trim()).filter(p => p.length > 5);
+                    if (process.env.WEBSHARE_API_KEY) {
+                        const dynamicList = await this.fetchWebshareProxies();
+                        if (dynamicList.length > 0) proxyList = dynamicList;
+                    } else {
+                        proxyList = proxyList.map(p => p.trim()).filter(p => p.length > 5);
+                    }
+                    selectedProxy = this.stickyProxy || (proxyList.length > 0 ? proxyList[Math.floor(Math.random() * proxyList.length)] : proxyUrl);
                 }
-
-                let selectedProxy = this.stickyProxy || (proxyList.length > 0 ? proxyList[Math.floor(Math.random() * proxyList.length)] : proxyUrl);
 
                 // 2. Reuse check
                 if (this.browser && !skipUserData && !forceNoProxy && this.currentProxy === selectedProxy) {
