@@ -65,7 +65,13 @@ class BrowserManager {
                 // 2. Reuse check
                 if (this.browser && !skipUserData && !forceNoProxy && (this.currentProxy === selectedProxy || (!this.currentProxy && !selectedProxy))) {
                     try {
-                        const pages = await this.browser.pages();
+                        console.log("[DEBUG] Probing existing browser for reuse...");
+                        // TIMEOUT PROBE: browser.pages() can deadlock if the browser is zombie
+                        const pages = await Promise.race([
+                            this.browser.pages(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Reuse probe timed out')), 5000))
+                        ]);
+
                         if (pages.length > 0) {
                             console.log("[DEBUG] Reusing existing browser session.");
                             this.page = pages[pages.length - 1];
@@ -73,7 +79,8 @@ class BrowserManager {
                             return;
                         }
                     } catch (e) {
-                        console.log("[DEBUG] Browser reuse probe failed, starting fresh.");
+                        console.log(`[DEBUG] Browser reuse failed (${e.message}), starting fresh.`);
+                        // If it hung or failed, don't try to close gracefully, just proceed to fresh launch
                     }
                 }
 
@@ -915,8 +922,12 @@ class BrowserManager {
     }
 
     async ensureCartHasItem() {
+        console.log("[DEBUG] Ensuring cart is ready...");
         try {
-            let itemCount = await this.getCartItemCount();
+            let itemCount = await Promise.race([
+                this.getCartItemCount(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('getCartItemCount timed out')), 20000))
+            ]);
 
             if (itemCount === 0) {
                 console.log("🛒 Cart is empty! Attempting session refresh from latest cookies...");

@@ -586,8 +586,11 @@ async function runRotationLoop() {
 
         // --- OPTIMIZATION: Perform setup once per cycle ---
         try {
+            console.log("[DEBUG] Performing rotation setup...");
             await browserManager.initBrowser();
+            console.log("[DEBUG] Browser ready, verifying cart...");
             await browserManager.ensureCartHasItem();
+            console.log("[DEBUG] Setup complete.");
         } catch (setupErr) {
             console.error("Rotation setup failed:", setupErr.message);
             // If setup fails, we'll try again in the next cycle in the 'finally' loop
@@ -604,6 +607,7 @@ async function runRotationLoop() {
             const couponCode = couponsToRotate[rotationIndex % couponsToRotate.length];
 
             console.log(`[DEBUG] Checking coupon [${rotationIndex % couponsToRotate.length + 1}/${couponsToRotate.length}]: ${couponCode}`);
+            lastCycleStartTime = Date.now(); // Reuse watchdog for rotation too
 
             try {
                 const results = await browserManager.checkCoupons([couponCode], {
