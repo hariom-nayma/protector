@@ -634,7 +634,14 @@ class BrowserManager {
                                     console.log("Could not fetch minicart guid:", e.message);
                                 }
                             }
-                            // ... remaining guide/sku logic ...
+                            
+                            // SKU Extraction Logic
+                            let sku = window.location.href.match(/\/p(?:-s)?-([0-9]+)/)?.[1] || 
+                                     document.querySelector('meta[name="twitter:image"]')?.content?.match(/p-([0-9]+)/)?.[1] ||
+                                     window.productIntroData?.detail?.sku || 
+                                     window.goods_id;
+                            
+                            let csrf = passedCsrf || document.querySelector('meta[name="csrf-token"]')?.content || window._csrf || "";
                             if (!sku || !guid) return { success: false, error: `Missing identifier. SKU: ${sku}, GUID: ${guid}` };
                             // ... csrf extraction ...
                             const addUrl = `/api/cart/${guid}/product/${sku}/add`;
@@ -1035,7 +1042,7 @@ class BrowserManager {
                     this.page.evaluate(async (code) => {
                         try {
                             const controller = new AbortController();
-                            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s API timeout
+                            const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased 15s -> 30s 
                             const response = await fetch('/api/cart/apply-voucher', {
                                 method: 'POST',
                                 headers: {
@@ -1058,7 +1065,7 @@ class BrowserManager {
                             return { error: err.message };
                         }
                     }, coupon),
-                    new Promise(resolve => setTimeout(() => resolve({ error: 'Evaluation Timeout (Browser Hung)' }), 20000))
+                    new Promise(resolve => setTimeout(() => resolve({ error: 'Evaluation Timeout (Browser Hung)' }), 35000))
                 ]);
 
                 if (options.detailed) {
