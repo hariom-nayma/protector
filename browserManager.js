@@ -1003,39 +1003,49 @@ class BrowserManager {
 
     async checkCoupons(coupons, options = { screenshot: true, detailed: true }, retryCount = 0) {
         const MAX_RETRIES = 5;
-        await this.initBrowser();
+        
+        if (!options.skipSetup) {
+            await this.initBrowser();
+        }
 
         const results = [];
 
         try {
             // Check for initial block / proxy failure
-            if (await this.handleBlockIfNeeded(null, retryCount, MAX_RETRIES)) {
-                return await this.checkCoupons(coupons, options, retryCount + 1);
-            }
-
-            if (!this.page.url().includes('cart')) {
-                try {
-                    await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded', timeout: 45000 });
-                } catch (e) {
-                    if (await this.handleBlockIfNeeded(e, retryCount, MAX_RETRIES)) {
-                        return await this.checkCoupons(coupons, options, retryCount + 1);
-                    }
-                    throw e;
+            if (!options.skipSetup) {
+                if (await this.handleBlockIfNeeded(null, retryCount, MAX_RETRIES)) {
+                    return await this.checkCoupons(coupons, options, retryCount + 1);
                 }
-                // Wait for initial tokens/cookies to settle
-                await new Promise(r => setTimeout(r, 4000));
-            }
 
-            // Ensure we have a Shein Verse item
-            const cartHasItem = await this.ensureCartHasItem();
-            if (!cartHasItem) {
-                console.error("❌ Cart is empty and failed to add item. Aborting coupon check.");
-                if (options.closeBrowser !== false) await this.closeBrowser();
-                return coupons.map(c => ({ 
-                    code: c, 
-                    status: 'ERROR_CART_EMPTY', 
-                    message: "Cart is empty. Please run /login or add an item manually." 
-                }));
+                if (!this.page.url().includes('cart')) {
+                    try {
+                        await this.page.goto('https://www.sheinindia.in/cart', { waitUntil: 'domcontentloaded', timeout: 45000 });
+                    } catch (e) {
+                        if (await this.handleBlockIfNeeded(e, retryCount, MAX_RETRIES)) {
+                            return await this.checkCoupons(coupons, options, retryCount + 1);
+                        }
+                        throw e;
+                    }
+                    // Wait for initial tokens/cookies to settle
+                    await new Promise(r => setTimeout(r, 4000));
+                }
+
+                // Ensure we have a Shein Verse item
+                const cartHasItem = await this.ensureCartHasItem();
+                if (!cartHasItem) {
+                    console.error("❌ Cart is empty and failed to add item. Aborting coupon check.");
+                    if (options.closeBrowser !== false) await this.closeBrowser();
+                    return coupons.map(c => ({ 
+                        code: c, 
+                        status: 'ERROR_CART_EMPTY', 
+                        message: "Cart is empty. Please run /login or add an item manually." 
+                    }));
+                }
+            } else {
+                // LIGHTWEIGHT RE-CHECK: Just ensure page is still alive and we are roughly on the right domain
+                if (!this.page || this.page.isClosed()) {
+                    throw new Error("Target page is closed even with skipSetup.");
+                }
             }
 
             for (const coupon of coupons) {

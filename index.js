@@ -584,6 +584,16 @@ async function runRotationLoop() {
         // Ensure rotationIndex is within bounds if size changed
         if (rotationIndex >= couponsToRotate.length) rotationIndex = 0;
 
+        // --- OPTIMIZATION: Perform setup once per cycle ---
+        try {
+            await browserManager.initBrowser();
+            await browserManager.ensureCartHasItem();
+        } catch (setupErr) {
+            console.error("Rotation setup failed:", setupErr.message);
+            // If setup fails, we'll try again in the next cycle in the 'finally' loop
+            return;
+        }
+
         for (let i = 0; i < couponsToRotate.length; i++) {
             if (rotationStopRequested || !isRotationEnabled) {
                 console.log("Rotation stop requested. Exiting loop.");
@@ -594,10 +604,23 @@ async function runRotationLoop() {
             const couponCode = couponsToRotate[rotationIndex % couponsToRotate.length];
 
             console.log(`[DEBUG] Checking coupon [${rotationIndex % couponsToRotate.length + 1}/${couponsToRotate.length}]: ${couponCode}`);
-            const results = await browserManager.checkCoupons([couponCode], { screenshot: false, detailed: true, closeBrowser: false });
-            await broadcastResults(results);
 
-            rotationIndex++; // Advance to next for either next iteration or next loop restart
+            try {
+                const results = await browserManager.checkCoupons([couponCode], {
+                    screenshot: false,
+                    detailed: true,
+                    closeBrowser: false,
+                    skipSetup: true // 🔥 OPTIMIZATION: Speed up single checks
+                });
+                await broadcastResults(results);
+            } catch (checkErr) {
+                console.log(`⚠️ Check failed for ${couponCode}, re-initializing and retrying...`);
+                // If it fails (e.g. Target closed), try one formal check (with setup) for this coupon
+                const results = await browserManager.checkCoupons([couponCode], { screenshot: false, detailed: true, closeBrowser: false });
+                await broadcastResults(results);
+            }
+
+            rotationIndex++; // Advance to next
 
             await new Promise(resolve => setTimeout(resolve, 5000)); // 5-second delay
         }
